@@ -1,6 +1,6 @@
 ---
 name: pbi-portfolio-navigator
-description: 'Power BI report router: detects which PBI report a user is asking about and routes to the correct pre-configured prompt, or guides discovery when the report is unclear. Matches natural-language phrases (e.g., "azure all in one", "customer incidents", "GHCP new logo", "service deep dive") to existing pbi-*.prompt.md files. Falls back to pbi-prompt-builder when no match exists. Triggers: PBI report, Power BI report, azure all in one, all-in-one, AIO, customer incidents, outages, CMI, GHCP, new logo incentive, service deep dive, SL5, ACR by service, which PBI report, what reports, show me reports, consumption report, portfolio report, pipeline report, run PBI prompt, open PBI prompt.'
+description: 'Power BI report router: detects which PBI report a user is asking about and routes to the correct pre-configured prompt, or guides discovery when the report is unclear. Matches natural-language phrases (e.g., "CXObserve", "customer incidents", "pipeline excellence", "SE productivity") to existing pbi-*.prompt.md files. Falls back to pbi-prompt-builder when no match exists. Triggers: PBI report, Power BI report, CXObserve, CXP, support experience, customer health, customer incidents, outages, CMI, CritSit, pipeline excellence, uncommitted to committed, close rate, SE productivity, SE performance, seller productivity, HoK activities, milestones engaged, which PBI report, what reports, show me reports, run PBI prompt, open PBI prompt.'
 argument-hint: 'Describe what you want to analyze or name the Power BI report'
 ---
 
@@ -10,7 +10,7 @@ Routes user queries about Power BI reports to the correct pre-configured `pbi-*.
 
 ## When to Use
 
-- User mentions a PBI report by name or nickname (e.g., "azure all in one", "CMI", "GHCP")
+- User mentions a PBI report by name or nickname (e.g., "CXObserve", "pipeline excellence", "SE productivity")
 - User asks a data question answerable by a known PBI report
 - User asks "what reports do we have?" or "which PBI prompts are available?"
 - User wants to run a PBI analysis but isn't sure which report to use
@@ -21,11 +21,9 @@ Routes user queries about Power BI reports to the correct pre-configured `pbi-*.
 
 | ID | Aliases | Prompt File | Semantic Model | Answers |
 |----|---------|-------------|----------------|---------|
-| `aio` | azure all in one, all-in-one, AIO, portfolio review, gap to target, azure consumption, enterprise consumption | `pbi-azure-all-in-one-review.prompt.md` | MSA_AzureConsumption_Enterprise | Gap to target, pipeline conversion ranking, recommended actions |
-| `subacr` | subscription details, subscription analysis, acr by subscription, subscription guid acr, subscription name acr, customer subscription acr, subscription consumption | `pbi-azure-subscription-acr-consumption.prompt.md` | MSA_Azure_SubscriptionDetails_Enterprise | Subscription-level ACR lookup by GUID/name/customer with month trend and service drivers |
-| `sl5` | service deep dive, SL5, ACR by service, service-level, consumption by service, which services growing | `pbi-azure-service-deep-dive-sl5-aio.prompt.md` | MSA_AzureConsumption_Enterprise + WWBI_ACRSL5 | Service growth/decline trends, attainment by pillar, service-level gap actions |
-| `cmi` | customer incidents, outages, CMI, CritSit, escalations, incident review, reactive support, AA&MSXI | `pbi-customer-incident-review.prompt.md` | AA&MSXI (CMI) | Active incidents, escalations, outage trends, reactive support health |
-| `ghcp` | GHCP, new logo, new logo incentive, growth incentive, GHCP new logo | `pbi-ghcp-new-logo-incentive.prompt.md` | MSXI (DIM_GHCP_Initiative) | Account eligibility, qualifying status, realized ACR against thresholds |
+| `cxobserve` | CXObserve, CXP, support experience, customer health, customer support review, support overview, TPID lookup, account support, customer experience, customer incidents, outages, CMI, CritSit, escalations, incident review, reactive support, AA&MSXI | `pbi-cxobserve-account-review.prompt.md` | AA&MSXI (CMI) | Customer support health, active incidents & escalations, satisfaction trends, reactive support metrics, outage impact (scoped by TPID) |
+| `uc2c` | pipeline excellence, uncommitted to committed, close rate, pipeline conversion, pipeline health, M2 pipeline review, pipeline shift out, milestone conversion, pipeline discipline | `pbi-pipeline-excellence-uncommitted-to-commit.prompt.md` | WWBI_FabricMSXIAzureCloseRate_OneAMP | UC→C conversion rates by M1/area/solution play/role, close rate trends, at-risk milestones, shift-out analysis |
+| `se` | SE productivity, SE performance, my SE metrics, seller productivity, individual seller review, how am I doing, SE scorecard, HoK activity count, milestones engaged, committed pipe engaged, engagement velocity, customer coverage | `pbi-se-productivity-review.prompt.md` | Azure Individual Seller Productivity FY26 | HoK activities, milestones engaged, committed milestones, customer deal-team coverage, pipeline created, engagement velocity, vault correlation |
 
 ## Routing Flow
 
@@ -35,11 +33,11 @@ Extract the user's intent and compare against the **Aliases** column above. Matc
 
 1. **Exact alias match** → route immediately.
 2. **Question-based match** — map the user's data question to the **Answers** column:
-   - "What is my gap?" → `aio`
-   - "Get ACR for this subscription/customer/GUID" → `subacr`
-   - "Show me incidents for Contoso" → `cmi`
-   - "Which services are growing?" → `sl5`
-   - "Am I qualifying for the growth incentive?" → `ghcp`
+   - "Show me incidents for Contoso" → `cxobserve`
+   - "What's the support health for this TPID?" → `cxobserve`
+   - "What's the UC to committed conversion rate?" → `uc2c`
+   - "How am I doing on milestones?" → `se`
+   - "How many HoK activities do I have?" → `se`
 3. **Ambiguous or partial match** → present the top 1–2 candidates with a one-line description and ask the user to confirm.
 4. **No match** → go to Step 2.
 
@@ -51,17 +49,15 @@ If no alias or question matches, present the full catalog:
 >
 > | # | Report | What It Answers |
 > |---|--------|-----------------|
-> | 1 | **Azure All-in-One** — portfolio gap, pipeline ranking, actions | `aio` |
-> | 2 | **Subscription ACR Lookup** — subscription/customer/GUID consumption detail | `subacr` |
-> | 3 | **Service Deep Dive (SL5)** — service-level consumption trends | `sl5` |
-> | 4 | **Customer Incidents (CMI)** — outages, CritSits, reactive support | `cmi` |
-> | 5 | **GHCP New Logo Incentive** — account eligibility & qualifying status | `ghcp` |
-> | 6 | **None of these** — help me build a new one |
+> | 1 | **CXObserve Account Review (CMI)** — support health, incidents, escalations, satisfaction trends by TPID | `cxobserve` |
+> | 2 | **Pipeline Excellence (UC→C)** — uncommitted-to-committed conversion, close rates, M2 pipeline review | `uc2c` |
+> | 3 | **SE Productivity Review** — HoK activities, milestones engaged, customer coverage, engagement velocity | `se` |
+> | 4 | **None of these** — help me build a new one |
 >
 > Which one are you looking for? (pick a number or describe your question)
 
-- If user picks 1–5 → route to the prompt.
-- If user picks 6 or describes something not in the catalog → chain to `pbi-prompt-builder` skill.
+- If user picks 1–3 → route to the prompt.
+- If user picks 4 or describes something not in the catalog → chain to `pbi-prompt-builder` skill.
 
 ### Step 3 — Execute the Prompt
 
@@ -78,7 +74,7 @@ Once matched, load and execute the full prompt file:
 | User asks about a report not in the catalog | Show catalog, then offer to chain to `pbi-prompt-builder` |
 | User asks about multiple reports at once | Route to each sequentially; warn about context window cost for multi-report runs |
 | User says "run the PBI prompt" without specifying which | Present the catalog (Step 2) |
-| Query could match two reports (e.g., "Azure consumption" → `aio` or `sl5`) | Present both candidates with their key differentiator and ask user to pick |
+| Query could match two reports (e.g., "milestones" → `uc2c` or `se`) | Present both candidates with their key differentiator and ask user to pick |
 | User wants to customize an existing prompt | Point them to the Configuration table in the matched prompt file |
 | Power BI auth fails during execution | Follow the auth recovery pattern from the prompt file — do not retry silently |
 
