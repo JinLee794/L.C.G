@@ -20,7 +20,7 @@ Quick check-in on [Milestone], currently due [Due Date]. Could you share a short
 - Revised date, if needed
 
 Thank you,
-Kate
+L.C.G
 
 ## Notes
 - Follow-up date:

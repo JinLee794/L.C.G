@@ -24,7 +24,7 @@ I work with an executive at a Fortune 100 software company. She runs a specialis
 
 She's not describing a chatbot. She's describing a chief of staff.
 
-We're building this right now (K.A.T.E repo). It's experimental, evolving, and we're learning as we go. What makes this engagement different is that she understood from the start that getting this right would require her to change how she works. Not dramatically, but meaningfully. How does your week actually flow? Which tasks can the assistant handle without checking with you? How much of your institutional knowledge does it need to be genuinely useful?
+We're building this right now (L.C.G repo). It's experimental, evolving, and we're learning as we go. What makes this engagement different is that she understood from the start that getting this right would require her to change how she works. Not dramatically, but meaningfully. How does your week actually flow? Which tasks can the assistant handle without checking with you? How much of your institutional knowledge does it need to be genuinely useful?
 
 Our working sessions have been design conversations, not product demos. We're mapping her workflow, defining autonomy boundaries, and talking through trust calibration. It feels less like setting up software and more like onboarding a very capable new hire.
 

@@ -19,6 +19,108 @@
 
 ---
 
+## Quick Start (5 Minutes)
+
+Before you begin, make sure you have:
+
+- [ ] **Microsoft corporate VPN** connected
+- [ ] **Microsoft corp account** (e.g., `your-alias@microsoft.com`)
+- [ ] **GitHub Copilot License** — [Get one here (Microsoft Internal)](https://aka.ms/copilot)
+
+---
+
+### Step 0: Install Prerequisites
+
+> [!IMPORTANT]
+> **Git, GitHub CLI, and (on Windows) PowerShell 7 are the only tools you need to install manually.** Everything else (VS Code, Node.js, Azure CLI) is handled by the bootstrap script in Step 2.
+
+**macOS / Linux:**
+
+```bash
+brew install git gh
+```
+
+**Windows — paste this single line into the default Windows PowerShell terminal:**
+
+```powershell
+winget install --id Microsoft.PowerShell --source winget; winget install Git.Git GitHub.cli; Start-Process pwsh -ArgumentList @('-NoExit', '-Command', '$env:PATH+=\";C:\Program Files\Git\cmd;C:\Program Files\GitHub CLI\"; Write-Host \"PowerShell 7 ready - continue with Step 1\" -ForegroundColor Green')
+```
+
+This installs PowerShell 7, Git, and GitHub CLI in one shot, then opens a new **PowerShell 7** window with the tools on PATH. Continue from that new window.
+
+> [!NOTE]
+> If you install Git or `gh` while VS Code is already open, **close and reopen VS Code entirely**. VS Code terminals inherit the system PATH from launch — newly installed tools won't be visible until you restart.
+
+---
+
+### Step 1: Clone and bootstrap
+
+> [!IMPORTANT]
+> Use your **personal GitHub account** (e.g. `JohnDoe`) when `gh auth login` prompts you. Do **NOT** use your Enterprise Managed User (EMU) account — the one ending in `_microsoft`. EMU accounts cannot access GitHub Packages from external organizations.
+
+**macOS / Linux:**
+
+```bash
+gh auth login && gh repo clone JinLee794/L.C.G && cd L.C.G && ./scripts/bootstrap.sh --skip-clone
+```
+
+**Windows (PowerShell 7 — the window opened in Step 0):**
+
+```powershell
+gh auth login; gh repo clone JinLee794/L.C.G; cd L.C.G; Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force; .\scripts\bootstrap.ps1 -SkipClone
+```
+
+The bootstrap script installs VS Code, Node.js 18+, Azure CLI, the Copilot extension, configures GitHub Packages auth, signs you in to Azure, and opens VS Code.
+
+> [!NOTE]
+> **If you have an existing Node.js installation**, make sure it is up-to-date (v18+) so that `npx` works correctly. The bootstrap script installs Node if missing, but won't upgrade an existing outdated installation. Run `node --version` to check.
+
+> [!TIP]
+> Just want to check what's missing? Run with `--check-only` (macOS/Linux) or `-CheckOnly` (Windows) to see a report without installing anything.
+
+### Step 2: Start using L.C.G.
+
+The bootstrap script opens VS Code and installs the `lcg` terminal command automatically. You're ready to go — pick either path:
+
+**VS Code (recommended for most users):**
+
+In VS Code, open **Copilot Chat** (sidebar icon or `⌃⌘I` / `Ctrl+Alt+I`) → select the **Chief of Staff** agent → start typing.
+
+**Terminal:**
+
+Open any terminal and type `lcg` to start an interactive session.
+
+> Both interfaces are fully equivalent — same agents, skills, and MCP servers. See [Two Ways to Use L.C.G.](#two-ways-to-use-lcg) for details.
+
+---
+
+## Architecture Overview
+
+### Identity & Value Proposition
+![L.C.G. — Hero Banner](image/README/lcg-01-hero.png)
+
+### Three-Layer Architecture
+![Three-Layer Architecture — Instructions, MCP Servers, Second Brain](image/README/lcg-02-architecture.png)
+
+### Agent Architecture
+![Two-Agent Architecture — Chief of Staff delegates to m365-actions](image/README/lcg-03-agents.png)
+
+### Workflow Lanes
+![Workflow Lanes — Daily, Weekly, On-Demand, Self-Repair](image/README/lcg-04-workflows.png)
+
+### Config Gate & Trust Model
+![Config Gate and Trust Model — vault-config-gate + human-in-the-loop](image/README/lcg-05-config-gate.png)
+![Trust Model — Read-only default, staged CRM writes](image/README/lcg-06-trust.png)
+
+### Connected Systems & Skills
+![Connected Systems via MCP](image/README/lcg-07-sources.png)
+![Skill Map — 34 domain skills by category](image/README/lcg-08-skills.png)
+![Callouts — Plain English, Local-First, Multi-Signal, Self-Correcting](image/README/lcg-09-callouts.png)
+
+> **Full interactive version:** After cloning, run `open assets/lcg-overview-diagram.html` (macOS) or `start assets/lcg-overview-diagram.html` (Windows) to view the full diagram in your browser.
+
+---
+
 ## The Grind is Real
 
 You already know the pain:
@@ -165,65 +267,6 @@ Copilot even fixes its own mistakes. Every core workflow has a **repair** prompt
 | `/meeting-followup-repair` | Meeting follow-up output |
 | `/update-request-repair`   | Update request output    |
 | `/learning-review-repair`  | Learning review output   |
-
----
-
-## Prerequisites
-
-| Requirement         | Minimum Version | Check                       |
-| ------------------- | --------------- | --------------------------- |
-| Node.js             | ≥ 18           | `node --version`          |
-| npm                 | ≥ 9            | `npm --version`           |
-| VS Code             | Insiders        | `code-insiders --version` |
-| GitHub Copilot Chat | Enabled         | Extensions panel            |
-| Azure CLI           | Latest          | `az --version`            |
-
----
-
-## Getting Started
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/JinLee794/L.C.G.git
-cd L.C.G
-```
-
-### 2. Install everything (one command)
-
-```bash
-npm install
-```
-
-> This runs the `postinstall` hook which automatically:
->
-> - Checks prerequisites (Node ≥ 18, npm)
-> - Verifies GitHub Packages authentication for MCP server packages
-> - Verifies the workspace MCP configuration is present
-
-> **First time?** If `npm install` fails with a `401` or `404` from `npm.pkg.github.com`, you need to set up GitHub Packages authentication — see [Troubleshooting](#troubleshooting) below.
-
-### 3. Sign in to Azure (for CRM access)
-
-```bash
-az login
-```
-
-### 4. Bootstrap your vault (first time only)
-
-```bash
-npm run vault:init
-```
-
-> This copies starter templates into your Obsidian vault. Set `OBSIDIAN_VAULT_PATH` in your `.env` first.
-
-### 5. Open in VS Code and start chatting
-
-```bash
-code .
-```
-
-Open Copilot Chat → select the **Chief of Staff** agent → you're live.
 
 ---
 

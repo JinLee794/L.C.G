@@ -1,4 +1,4 @@
-# Kate Preferences
+# L.C.G Preferences
 
 ## Working Style
 - Sunday night is the main triage window.

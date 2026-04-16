@@ -8,7 +8,7 @@
 - Attendees:
 
 ## Why This Matters
-- **[single most important thing Kate should know]**
+- **[single most important thing L.C.G should know]**
 -
 
 ## What Changed Since Last Touchpoint

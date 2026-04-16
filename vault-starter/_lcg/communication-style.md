@@ -10,4 +10,4 @@
 - Use formal tone for client-facing drafts.
 
 ## Preferred Phrases
-- Add high-frequency phrases Kate uses in real messages.
+- Add high-frequency phrases L.C.G uses in real messages.
