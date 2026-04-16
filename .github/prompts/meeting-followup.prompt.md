@@ -24,7 +24,7 @@ Capture action items and stage follow-through after {{meeting_name}} on {{meetin
 
 - Meeting invite details and attendee list.
 - Relevant emails from the last 48 hours tied to the meeting topic.
-- CRM milestones linked to {{customer}} (or best-match topic).
+- CRM opportunities and milestones linked to {{customer}} (or best-match topic).
 
 3. Extract action items with deterministic fields:
 

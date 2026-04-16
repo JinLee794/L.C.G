@@ -13,6 +13,7 @@ applyTo: "**"
 - Match formality to recipient seniority and relationship.
 - Avoid generic AI phrasing.
 - Reuse known phrasing patterns from vault references.
+- **Always resolve recipient display names before drafting.** Never use raw aliases (e.g., `vekumar`, `mattd`) in greetings or body text. Look up names via vault People/ notes first, then Microsoft Graph. If unresolvable, greet generically ("Hi,") rather than with an alias.
 
 ## Teams and Internal Updates
 - Keep messages concise and action-oriented.

@@ -13,7 +13,7 @@ Today is {{TODAY}}. Run the morning triage correction loop.
 
 ## Steps
 1. Read today's morning triage brief.
-2. Review explicit correction notes from LCG (if present in daily note annotations).
+2. Review explicit correction notes from L.C.G (if present in daily note annotations).
 3. Extract corrections in this shape:
   - Original classification/assumption
   - Corrected classification/assumption
