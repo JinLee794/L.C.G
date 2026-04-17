@@ -144,9 +144,11 @@ When the user says "html report", "dashboard", "rich report", or "exec report":
 
 1. Collect all PBI query results into a single JSON object matching the schema below
 2. Write JSON to `/tmp/sql600-data-<YYYY-MM-DD>.json`
-3. Run: `node scripts/helpers/generate-sql600-report.js /tmp/sql600-data-<YYYY-MM-DD>.json`
-4. Output lands in `.copilot/docs/sql600-hls-readout-<YYYY-MM-DD>.html`
-5. Open in browser for preview; printable to PDF via Cmd+P
+3. Enrich with MSX `AccountId` (required for clickable deep links):
+   `node scripts/helpers/enrich-sql600-accounts.js /tmp/sql600-data-<YYYY-MM-DD>.json`
+4. Run: `node scripts/helpers/generate-sql600-report.js /tmp/sql600-data-<YYYY-MM-DD>.json`
+5. Output lands in `.copilot/docs/sql600-hls-readout-<YYYY-MM-DD>.html`
+6. Open in browser for preview; printable to PDF via Cmd+P
 
 **JSON input schema** for `generate-sql600-report.js`:
 ```json
@@ -156,13 +158,15 @@ When the user says "html report", "dashboard", "rich report", or "exec report":
   "ranking": [{ "Industry": "string", "ACR_LCM": number, "AccountCount": number }],
   "verticals": [{ "Vertical": "string", "AccountCount": number, "ACR_LCM": number, "PipeCommitted": number, "PipeUncommitted": number, "AnnualizedGrowth": number, "ModOpps": number }],
   "trend": [{ "FiscalMonth": "YYYY-MM-DD", "FiscalQuarter": "string", "ACR": number }],
-  "topAccounts": [{ "TopParent": "string", "TPID": number, "Vertical": "string", "Segment": "string", "ACR_LCM": number, "PipeCommitted": number|null, "PipeUncommitted": number|null, "AnnualizedGrowth": number, "QualifiedOpps": number|null, "TotalOpps": number|null, "SQLCores": number|null }],
-  "renewals": [{ "TopParent": "string", "TPID": number, "Category": "string", "RenewalQuarter": "string|null", "SQLCores": number, "ArcEnabled": "Yes|No", "ACR_LCM": number|null, "PipeCommitted": number|null }],
-  "gapAccounts": [{ "TopParent": "string", "TPID": number, "Vertical": "string", "ACR_LCM": number|null, "PipeUncommitted": number|null, "SQLCores": number|null }]
+  "topAccounts": [{ "TopParent": "string", "TPID": number, "AccountId": "guid", "Vertical": "string", "Segment": "string", "ACR_LCM": number, "PipeCommitted": number|null, "PipeUncommitted": number|null, "AnnualizedGrowth": number, "QualifiedOpps": number|null, "TotalOpps": number|null, "SQLCores": number|null }],
+  "renewals": [{ "TopParent": "string", "TPID": number, "AccountId": "guid", "Category": "string", "RenewalQuarter": "string|null", "SQLCores": number, "ArcEnabled": "Yes|No", "ACR_LCM": number|null, "PipeCommitted": number|null }],
+  "gapAccounts": [{ "TopParent": "string", "TPID": number, "AccountId": "guid", "Vertical": "string", "ACR_LCM": number|null, "PipeUncommitted": number|null, "SQLCores": number|null }]
 }
 ```
 
-> **TPID is REQUIRED** on every account-level row in `topAccounts`, `renewals`, and `gapAccounts` — the HTML generator uses TPID to build MSX deep links for each row. The PBI queries (Q5, Q6, Q8) already project `'2) Account'[TPID]`; make sure to preserve it when flattening to JSON.
+> **`AccountId` is REQUIRED** on every account-level row in `topAccounts`, `renewals`, and `gapAccounts`. The HTML generator builds MSX deep links as `main.aspx?etn=account&id=<AccountId>&pagetype=entityrecord` — this is the only URL shape MSX reliably routes to a specific record. TPID/name-based quick-find URLs silently land on the user's "My Active Accounts" home view and are intentionally NOT emitted.
+>
+> PBI does not project `AccountId`. The enrichment helper [`scripts/helpers/enrich-sql600-accounts.js`](../../../scripts/helpers/enrich-sql600-accounts.js) resolves each `TopParent` → MSX top-parent account GUID via a curated map (maintained from Dynamics queries with `_parentaccountid_value eq null`). Run it before `generate-sql600-report.js`. If any row is unmapped, the helper prints it to stdout — add the new top-parent to the map before regenerating. TPID is still useful for display and must be preserved when flattening PBI results.
 
 **Narrative override.** When a markdown readout file matching the date exists at `.copilot/docs/sql600-hls-readout-<date>.md` or `$OBSIDIAN_VAULT_PATH/Daily/SQL600-HLS/sql600-hls-readout-<date>.md`, the generator auto-discovers it and extracts the blockquote narratives under each `##` section (Headline, ACR Trajectory, Vertical Breakdown, Industry Ranking, Top Accounts, Renewal Watch, Modernization, GCP Leakage) plus the Key Takeaways bullet list. These replace the hardcoded prose in the HTML. Pass `--narrative <path>` to override auto-discovery.
 

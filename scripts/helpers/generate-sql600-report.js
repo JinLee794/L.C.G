@@ -125,11 +125,10 @@ function msxAccountUrl(row) {
   if (row?.AccountUrl) return row.AccountUrl;
   if (row?.msxUrl) return row.msxUrl;
   if (row?.recordUrl) return row.recordUrl;
-  // GUID → direct record; TPID → quick-find by TPID; name → quick-find by name
+  // GUID → direct record (only reliable deep link). TPID/name search URLs
+  // silently land on the user's "My Active Accounts" home view in MSX, so we
+  // intentionally do NOT emit a clickable link when only TPID/name is known.
   if (row?.AccountId) return `${MSX_BASE}?etn=account&id=${row.AccountId}&pagetype=entityrecord`;
-  const tpid = resolveTpid(row);
-  if (tpid) return `${MSX_BASE}?pagetype=entitylist&etn=account&viewType=1039&searchText=${tpid}`;
-  if (row?.TopParent) return `${MSX_BASE}?pagetype=entitylist&etn=account&viewType=1039&searchText=${encodeURIComponent(row.TopParent.trim())}`;
   return null;
 }
 function msxOppUrl(row) {
@@ -149,6 +148,62 @@ function acctCell(row, options = {}) {
     ? `<a class="msx-link" href="${url}" target="_blank" rel="noopener" title="Open in MSX">${name}</a>`
     : name;
   return `<td class="acct-name"${style}>${inner}${showTpid && tpid ? ' ' + tpid : ''}</td>`;
+}
+
+// ── Rationale helpers ────────────────────────────────────────────────────────
+// Per-row "Why flagged" explanations derived deterministically from the row's
+// own numeric signals. Each returns a short HTML string (chips separated by ·).
+function chip(cls, text) { return `<span class="why-chip ${cls}">${text}</span>`; }
+
+function topAccountRationale(a, rank) {
+  if (a?.Rationale) return a.Rationale;
+  const chips = [];
+  if (rank === 0) chips.push(chip('why-lead', '#1 by ACR'));
+  else if (rank < 3) chips.push(chip('why-lead', `#${rank + 1} by ACR`));
+  const growth = a.AnnualizedGrowth || 0;
+  if (growth >= 50e6) chips.push(chip('why-good', `${fmtDollar(growth)} growth`));
+  else if (growth >= 10e6) chips.push(chip('why-neutral', `${fmtDollar(growth)} growth`));
+  else if (growth < 0) chips.push(chip('why-bad', `${fmtDollar(growth)} decline`));
+  const committed = a.PipeCommitted || 0;
+  const uncommitted = a.PipeUncommitted || 0;
+  if (committed === 0 && uncommitted > 0) chips.push(chip('why-bad', 'no committed pipe'));
+  else if (committed >= 10e6) chips.push(chip('why-good', `${fmtDollar(committed)} committed`));
+  const q = a.QualifiedOpps || 0, t = a.TotalOpps || 0;
+  if (t > 0 && q / t < 0.3) chips.push(chip('why-bad', `only ${q}/${t} qualified`));
+  else if (t >= 50) chips.push(chip('why-neutral', `${t} active opps`));
+  if (a.Segment === 'Strategic') chips.push(chip('why-neutral', 'Strategic'));
+  return chips.join(' ');
+}
+
+function renewalRationale(r) {
+  if (r?.Rationale) return r.Rationale;
+  const chips = [];
+  const q = r.RenewalQuarter || '';
+  if (q === 'FY26-Q4') chips.push(chip('why-bad', 'renews this Q'));
+  else if (q === 'FY26-Q3') chips.push(chip('why-warn', 'renews next Q'));
+  else if (q) chips.push(chip('why-neutral', `renews ${q}`));
+  const cores = r.SQLCores || 0;
+  if (cores >= 10000) chips.push(chip('why-bad', `${fmtNum(cores)} cores at risk`));
+  else if (cores >= 3000) chips.push(chip('why-warn', `${fmtNum(cores)} cores`));
+  if (r.ArcEnabled !== 'Yes') chips.push(chip('why-bad', 'no Arc'));
+  const committed = r.PipeCommitted || 0;
+  if (committed === 0) chips.push(chip('why-bad', 'no committed pipe'));
+  else if (committed < 500000) chips.push(chip('why-warn', 'thin pipe'));
+  return chips.join(' ') || chip('why-neutral', '—');
+}
+
+function gapRationale(g) {
+  if (g?.Rationale) return g.Rationale;
+  const chips = [];
+  const acr = g.ACR_LCM || 0;
+  const uncommitted = g.PipeUncommitted || 0;
+  const cores = g.SQLCores || 0;
+  if (acr >= 1e6 && uncommitted < acr * 0.1) chips.push(chip('why-bad', 'ACR > 10× pipe'));
+  else if (acr >= 500000 && uncommitted === 0) chips.push(chip('why-bad', 'zero pipe'));
+  if (cores >= 5000) chips.push(chip('why-bad', `${fmtNum(cores)} cores unmodernized`));
+  else if (cores >= 1000) chips.push(chip('why-warn', `${fmtNum(cores)} cores`));
+  if (acr >= 1e6) chips.push(chip('why-neutral', `${fmtDollar(acr)} ACR`));
+  return chips.join(' ') || chip('why-neutral', 'low footprint');
 }
 
 // ── Narrative loader (markdown → per-section blockquote text) ───────────────
@@ -345,7 +400,7 @@ ${dLabel ? `<text x="${x(i)}" y="${y(p.v) - 12}" fill="${dColor}" font-size="9" 
  * Centers account count, radial segments sized by ACR contribution
  */
 function buildVerticalMix(verticals, snapshotAcr, snapshotAccts) {
-  const W = 320, H = 280, cx = W / 2, cy = H / 2 - 10, rOuter = 100, rInner = 62;
+  const W = 260, H = 260, cx = W / 2, cy = H / 2, rOuter = 110, rInner = 72;
   const data = verticals.map(v => ({ ...v, acr: parseDollar(v.ACR_LCM) })).filter(v => v.acr > 0);
   const sumVerticals = data.reduce((s, d) => s + d.acr, 0);
   const total = snapshotAcr || sumVerticals;
@@ -370,39 +425,36 @@ function buildVerticalMix(verticals, snapshotAcr, snapshotAccts) {
     const x2 = cx + rOuter * Math.cos(end), y2 = cy + rOuter * Math.sin(end);
     const ix1 = cx + rInner * Math.cos(start), iy1 = cy + rInner * Math.sin(start);
     const ix2 = cx + rInner * Math.cos(end), iy2 = cy + rInner * Math.sin(end);
-    const mid = (start + end) / 2;
-    const labelX = cx + (rOuter + 18) * Math.cos(mid);
-    const labelY = cy + (rOuter + 18) * Math.sin(mid);
     return {
       path: `M${x1},${y1} A${rOuter},${rOuter} 0 ${large} 1 ${x2},${y2} L${ix2},${iy2} A${rInner},${rInner} 0 ${large} 0 ${ix1},${iy1} Z`,
       color: colors[d.Vertical] || '#8b8fa3',
       vertical: d.Vertical,
       pct: (frac * 100).toFixed(0),
       acr: d.acr,
-      accts: d.AccountCount,
-      labelX, labelY, mid
+      accts: d.AccountCount
     };
   });
 
-  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="xMidYMid meet">
-  ${segments.map(s => `<path d="${s.path}" fill="${s.color}" opacity="0.88" class="donut-seg"><title>${s.vertical}: ${fmtDollar(s.acr)} · ${s.accts} accts</title></path>`).join('\n  ')}
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="chart-svg donut-svg" preserveAspectRatio="xMidYMid meet">
+  ${segments.map(s => `<path d="${s.path}" fill="${s.color}" opacity="0.9" class="donut-seg"><title>${s.vertical}: ${fmtDollar(s.acr)} · ${s.accts} accts</title></path>`).join('\n  ')}
 
-  <!-- Center labels -->
-  <text x="${cx}" y="${cy - 6}" fill="#e4e5eb" font-size="28" font-weight="700" text-anchor="middle" class="donut-center">${totalAccts}</text>
-  <text x="${cx}" y="${cy + 14}" fill="#8b8fa3" font-size="10" text-anchor="middle" letter-spacing="1.5" class="donut-center-label">HLS ACCOUNTS</text>
-  <text x="${cx}" y="${cy + 32}" fill="#a29bfe" font-size="11" font-weight="700" text-anchor="middle" class="donut-center-total">${fmtDollar(total)} ACR</text>
-
-  <!-- Legend -->
-  ${segments.map((s, i) => {
-    const ly = H - 54 + Math.floor(i / 2) * 28;
-    const lx = 20 + (i % 2) * (W / 2 - 10);
-    return `<g>
-  <rect x="${lx}" y="${ly - 8}" width="10" height="10" rx="2" fill="${s.color}"/>
-  <text x="${lx + 16}" y="${ly}" fill="#e4e5eb" font-size="11" font-weight="600" class="chart-text">${s.vertical}</text>
-  <text x="${lx + 16}" y="${ly + 12}" fill="#8b8fa3" font-size="9" class="chart-axis">${s.pct}% · ${s.accts} accts</text>
-</g>`;
-  }).join('\n  ')}
+  <!-- Center labels (stacked inside inner hole with generous vertical spacing) -->
+  <text x="${cx}" y="${cy - 10}" fill="#e4e5eb" font-size="32" font-weight="700" text-anchor="middle" class="donut-center">${totalAccts}</text>
+  <text x="${cx}" y="${cy + 12}" fill="#8b8fa3" font-size="9" text-anchor="middle" letter-spacing="1.4" class="donut-center-label">HLS ACCOUNTS</text>
+  <text x="${cx}" y="${cy + 32}" fill="#a29bfe" font-size="12" font-weight="700" text-anchor="middle" class="donut-center-total">${fmtDollar(total)} ACR</text>
 </svg>`;
+
+  const legend = `<div class="donut-legend">
+  ${segments.map(s => `<div class="donut-legend-item">
+    <span class="donut-legend-swatch" style="background:${s.color}"></span>
+    <div>
+      <div class="donut-legend-name">${s.vertical}</div>
+      <div class="donut-legend-meta">${s.pct}% · ${s.accts} accts</div>
+    </div>
+  </div>`).join('\n  ')}
+</div>`;
+
+  return svg + legend;
 }
 
 /**
@@ -411,14 +463,18 @@ function buildVerticalMix(verticals, snapshotAcr, snapshotAccts) {
  * Overlay: account count annotation per quarter
  */
 function buildRenewalPressure(renewals) {
-  const quarters = ['FY26-Q3', 'FY26-Q4', 'FY27-Q1', 'FY27-Q2'];
-  const byQ = quarters.map(q => {
+  const allQuarters = ['FY26-Q3', 'FY26-Q4', 'FY27-Q1', 'FY27-Q2'];
+  const byQAll = allQuarters.map(q => {
     const rows = renewals.filter(r => r.RenewalQuarter === q);
     const arcCores = rows.filter(r => r.ArcEnabled === 'Yes').reduce((s, r) => s + (r.SQLCores || 0), 0);
     const noArcCores = rows.filter(r => r.ArcEnabled !== 'Yes').reduce((s, r) => s + (r.SQLCores || 0), 0);
     const noCommitAccts = rows.filter(r => !r.PipeCommitted || r.PipeCommitted === 0).length;
     return { q, arcCores, noArcCores, total: arcCores + noArcCores, accts: rows.length, noCommitAccts };
   });
+  // Drop trailing empty quarters so the chart doesn't allocate space for buckets with no renewals
+  const byQ = byQAll.filter(d => d.total > 0 || d.accts > 0);
+  const quarters = byQ.map(d => d.q);
+  if (byQ.length === 0) return '';
 
   const W = 680, H = 280, M = { top: 30, right: 28, bottom: 50, left: 60 };
   const iw = W - M.left - M.right, ih = H - M.top - M.bottom;
@@ -667,6 +723,23 @@ const html = `<!DOCTYPE html>
   .tag-arc { background: var(--green-bg); color: var(--green); }
   .tag-no-arc { background: rgba(139,143,163,0.1); color: var(--text-muted); }
 
+  /* Rationale chips ("Why flagged") */
+  .why-cell {
+    width: 240px; max-width: 240px;
+    white-space: normal !important;
+    line-height: 1.5;
+  }
+  .why-chip {
+    display: inline-block; padding: 2px 7px; margin: 2px 3px 2px 0;
+    border-radius: 4px; font-size: 10.5px; font-weight: 500;
+    white-space: nowrap; vertical-align: middle;
+  }
+  .why-lead    { background: rgba(108,92,231,0.18); color: var(--accent-light); }
+  .why-good    { background: var(--green-bg); color: var(--green); }
+  .why-neutral { background: rgba(139,143,163,0.15); color: var(--text-muted); }
+  .why-warn    { background: var(--yellow-bg); color: var(--yellow); }
+  .why-bad     { background: var(--red-bg); color: var(--red); font-weight: 600; }
+
   /* Chart */
   .chart-area { padding: 16px 0; }
   .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
@@ -741,6 +814,21 @@ const html = `<!DOCTYPE html>
   .chart-wrap-wide { max-height: 360px; }
   .chart-wrap-wide .chart-svg { max-height: 360px; }
   .chart-wrap-donut { max-width: 360px; margin: 8px auto 0; }
+  .donut-svg { display: block; max-width: 260px; margin: 0 auto; }
+  .donut-legend {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px;
+    margin: 16px auto 4px; padding: 0 6px; max-width: 320px;
+  }
+  .donut-legend-item { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+  .donut-legend-swatch {
+    flex-shrink: 0; width: 10px; height: 10px; border-radius: 2px;
+    margin-top: 4px; display: inline-block;
+  }
+  .donut-legend-name {
+    font-size: 12px; font-weight: 600; color: var(--white);
+    line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .donut-legend-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 2px; }
   .chart-caption { font-size: 12px; color: var(--text-muted); margin-top: 10px; line-height: 1.5; }
   .chart-caption strong { color: var(--accent-light); }
   .donut-seg { transition: opacity 0.2s ease; cursor: default; }
@@ -849,6 +937,14 @@ const html = `<!DOCTYPE html>
     .tag-arc { background: #e6f9f0 !important; color: #00875a !important; }
     .tag-no-arc { background: #f0f0f0 !important; color: #888 !important; }
 
+    /* Rationale chips — print */
+    .why-chip { font-size: 9.5px !important; padding: 1px 5px !important; }
+    .why-lead    { background: #f0edff !important; color: #5b4cbb !important; }
+    .why-good    { background: #e6f9f0 !important; color: #00875a !important; }
+    .why-neutral { background: #f0f0f0 !important; color: #555 !important; }
+    .why-warn    { background: #fff8e6 !important; color: #b8860b !important; }
+    .why-bad     { background: #ffeaea !important; color: #de350b !important; }
+
     /* Chart bars */
     .bar-label { color: #555 !important; }
     .bar-track { background: #f0f0f3 !important; }
@@ -887,6 +983,8 @@ const html = `<!DOCTYPE html>
     .chart-svg .donut-center { fill: #111 !important; }
     .chart-svg .donut-center-label { fill: #666 !important; }
     .chart-svg .donut-center-total { fill: #5b4cbb !important; }
+    .donut-legend-name { color: #222 !important; }
+    .donut-legend-meta { color: #666 !important; }
     .chart-caption { color: #555 !important; }
     .chart-caption strong { color: #5b4cbb !important; }
   }
@@ -1109,6 +1207,7 @@ const html = `<!DOCTYPE html>
         <th class="right">Ann. Growth</th>
         <th class="right">Opps</th>
         <th class="right">SQL Cores</th>
+        <th>Why flagged</th>
       </tr>
     </thead>
     <tbody>
@@ -1125,6 +1224,7 @@ const html = `<!DOCTYPE html>
         <td class="right" style="color:var(--green)">${fmtDollar(a.AnnualizedGrowth)}</td>
         <td class="right">${fmtNum(a.QualifiedOpps) || '—'}/${fmtNum(a.TotalOpps) || '—'}</td>
         <td class="right">${fmtNum(a.SQLCores)}</td>
+        <td class="why-cell">${topAccountRationale(a, i)}</td>
       </tr>`).join('\n      ')}
     </tbody>
   </table>
@@ -1155,6 +1255,7 @@ const html = `<!DOCTYPE html>
           <th>Arc?</th>
           <th class="right">ACR</th>
           <th class="right">Committed</th>
+          <th>Why flagged</th>
         </tr>
       </thead>
       <tbody>
@@ -1170,6 +1271,7 @@ const html = `<!DOCTYPE html>
           <td><span class="tag ${r.ArcEnabled === 'Yes' ? 'tag-arc' : 'tag-no-arc'}">${r.ArcEnabled || 'No'}</span></td>
           <td class="right">${fmtDollar(r.ACR_LCM, false)}</td>
           <td class="right">${fmtDollar(r.PipeCommitted, false)}</td>
+          <td class="why-cell">${renewalRationale(r)}</td>
         </tr>`).join('\n        ')}
       </tbody>
     </table>
@@ -1196,6 +1298,7 @@ const html = `<!DOCTYPE html>
           <th class="right">ACR</th>
           <th class="right">Uncommitted</th>
           <th class="right">SQL Cores</th>
+          <th>Why flagged</th>
         </tr>
       </thead>
       <tbody>
@@ -1205,6 +1308,7 @@ const html = `<!DOCTYPE html>
           <td class="right">${fmtDollar(g.ACR_LCM, false)}</td>
           <td class="right">${fmtDollar(g.PipeUncommitted, false)}</td>
           <td class="right">${fmtNum(g.SQLCores)}</td>
+          <td class="why-cell">${gapRationale(g)}</td>
         </tr>`).join('\n        ')}
       </tbody>
     </table>
