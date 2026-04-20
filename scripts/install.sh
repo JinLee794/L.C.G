@@ -118,4 +118,11 @@ mv "$EXTRACTED_DIR" "$INSTALL_DIR"
 
 say "Running bootstrap from $INSTALL_DIR..."
 cd "$INSTALL_DIR"
+
+# When invoked via `curl | bash`, stdin is the pipe (already consumed).
+# Reopen stdin from /dev/tty so bootstrap prompts can read user input.
+if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
+  exec </dev/tty
+fi
+
 exec bash ./scripts/bootstrap.sh ${BOOTSTRAP_ARGS[@]+"${BOOTSTRAP_ARGS[@]}"}
