@@ -5,7 +5,7 @@ set -euo pipefail
 REPO_OWNER="JinLee794"
 REPO_NAME="L.C.G"
 REPO_REF="main"
-INSTALL_DIR="${HOME}/${REPO_NAME}"
+INSTALL_DIR="${PWD}/${REPO_NAME}"
 FORCE=0
 BOOTSTRAP_ARGS=()
 
@@ -13,8 +13,8 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [--dir <path>] [--ref <git-ref>] [--force] [--bootstrap-arg <arg>]
 
-Downloads the public L.C.G repository archive, extracts it locally, and runs
-the repo bootstrap script.
+Downloads the public L.C.G repository archive, extracts it into the current
+directory, and runs the repo bootstrap script.
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.sh | bash
@@ -103,4 +103,4 @@ mv "$EXTRACTED_DIR" "$INSTALL_DIR"
 
 say "Running bootstrap from $INSTALL_DIR..."
 cd "$INSTALL_DIR"
-exec bash ./scripts/bootstrap.sh "${BOOTSTRAP_ARGS[@]}"
+exec bash ./scripts/bootstrap.sh ${BOOTSTRAP_ARGS[@]+"${BOOTSTRAP_ARGS[@]}"}

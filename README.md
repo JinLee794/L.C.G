@@ -28,88 +28,121 @@ Before you begin, make sure you have:
 
 ### Step 0: Run The Installer
 
-> [!IMPORTANT]
-> **You do not need to install `git` or `gh` first anymore.** Since this repo is public, you can run the installer directly and let it pull the repo archive for you.
-
 > [!CAUTION]
-> **Run the installer from a safe, empty-ish directory** (like your home folder or Desktop). The script creates a new `L.C.G` folder wherever it runs. Do **not** run it inside system directories, shared drives, or folders containing unrelated work — it will write files into that location.
+> **The script creates an `L.C.G` folder in your current directory.** We recommend running from your home folder (`cd ~`). Don't run it inside system directories, shared drives, or folders with unrelated work.
 
 #### macOS / Linux
 
-1. Open **Terminal** (search for "Terminal" in Spotlight on macOS, or find it in your Applications → Utilities folder).
-2. You should see a command prompt — something like `yourname@mac ~ %` or `user@linux:~$`. The `~` means you're in your home folder, which is a safe place to run the installer.
-3. **Copy and paste** the entire line below into the terminal, then press **Enter**:
+1. Open **Terminal** (Spotlight → search "Terminal").
+2. `cd` to where you want the `L.C.G` folder created (e.g., `cd ~` for your home folder).
+3. Paste this and press **Enter**:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.sh | bash
 ```
 
-> **What does this command do?** `curl` downloads the install script from GitHub, and `| bash` runs it immediately. It will create a folder called `~/L.C.G` (inside your home directory) and set everything up there.
-
 #### Windows
 
-1. Open **PowerShell** — press the Windows key, type `PowerShell`, and click **Windows PowerShell** (not "Command Prompt" — they are different).
-2. You should see a prompt like `PS C:\Users\YourName>`. This is your home folder — a safe place to run the installer.
-3. **Copy and paste** the entire line below into the PowerShell window, then press **Enter**:
+1. Open **PowerShell** (Start → type "PowerShell" → click **Windows PowerShell**, not Command Prompt).
+2. `cd` to where you want the `L.C.G` folder created (e.g., `cd ~` for your home folder).
+3. Paste this and press **Enter**:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.ps1 | iex
 ```
 
-> **What does this command do?** `Set-ExecutionPolicy -Scope Process Bypass -Force` temporarily allows scripts to run in this session only (it resets when you close the window). `irm` downloads the install script, and `| iex` runs it. It will create a folder called `L.C.G` in your home directory.
-
-#### What happens next
-
-The installer downloads the latest repo snapshot into `~/L.C.G` and hands off to the bootstrap flow automatically. You'll see progress messages in the terminal — just follow any prompts that appear.
-
-> [!NOTE]
-> The installer is just a thin wrapper. It downloads the repo and then runs `scripts/bootstrap.sh` or `scripts/bootstrap.ps1` locally.
+The installer creates `L.C.G/` in your current directory and runs the bootstrap automatically. Follow any prompts that appear.
 
 ---
 
 ### Step 1: What The Bootstrap Does
 
 > [!IMPORTANT]
-> When GitHub authentication is needed for package access, use your **personal GitHub account** (for example `JohnDoe`), not your Enterprise Managed User account ending in `_microsoft`.
+> When prompted for GitHub auth, use your **personal GitHub account** (e.g., `JohnDoe`), not your Enterprise Managed User account ending in `_microsoft`.
 
-The bootstrap flow does four things:
+The bootstrap:
 
-1. Ensures **Node.js 18+** is installed.
-2. Runs `npm install` in the repo.
-3. Walks you through **GitHub Packages auth** and local `.env` / vault setup.
-4. Registers the global **`mcaps`** command when possible.
-
-It does **not** clone the repo with `git`, install VS Code for you, or automatically sign you into Azure.
-
-> [!NOTE]
-> **If you already have Node.js installed**, make sure it is v18+ so `npx` works correctly. The bootstrap script installs Node if missing, but does not upgrade an outdated existing install.
+1. Installs **Node.js 18+** if missing.
+2. Runs `npm install`.
+3. Walks you through **GitHub Packages auth** and `.env` setup.
+4. Registers the global **`mcaps`** command.
 
 > [!TIP]
-> Want a dry prerequisite check after install? Run `./scripts/bootstrap.sh --check` on macOS/Linux or `./scripts/bootstrap.ps1 -Check` on Windows from inside the repo.
+> Already have Node.js? Make sure it's v18+. Run `./scripts/bootstrap.sh --check` (macOS/Linux) or `./scripts/bootstrap.ps1 -Check` (Windows) for a dry prerequisite check.
 
 ### Step 2: Configure Your `.env` File
-
-The MCP servers in `.vscode/mcp.json` reference a local `.env` file for environment-specific settings. A `.env.example` is included as a template.
 
 ```bash
 cp .env.example .env
 ```
 
-Then open `.env` and set the required value:
+Open `.env` and set your vault path:
 
 ```dotenv
 OBSIDIAN_VAULT_PATH="/Path/To/Your/Obsidian/Vault"
 ```
 
-Replace the path with the absolute path to your Obsidian vault directory (e.g., `"/Users/you/Documents/Obsidian/My Vault"`).
+> [!NOTE]
+> `.env` is git-ignored — your paths and secrets stay local. The Obsidian Intelligence Layer MCP server uses this variable. Skip this and vault features won't work.
+
+### Step 3: Set Up Your Obsidian Vault
+
+L.C.G. uses an [Obsidian](https://obsidian.md) vault as its local "second brain" — plain markdown files for customer notes, meeting history, drafts, and learning corrections.
+
+#### 3a. Create or choose a vault
+
+If you don't have one yet: download [Obsidian](https://obsidian.md) → **Create new vault** → pick a name and location you'll remember.
+
+Otherwise, note the full path to your existing vault (e.g., `/Users/you/Documents/Obsidian/My Vault`) and make sure Step 2's `.env` points to it.
+
+#### 3b. Bootstrap the vault structure
+
+```bash
+cd ~/L.C.G && npm run vault:init
+```
+
+This copies starter templates into your vault (never overwrites existing files). Afterward your vault will contain:
+
+| Created | Purpose |
+|---------|---------|
+| `_lcg/preferences.md` | Triage labels, display preferences |
+| `_lcg/vip-list.md` | VIP senders that get priority in triage |
+| `_lcg/operating-rhythm.md` | Weekly cadences (triage time, review days) |
+| `_lcg/communication-style.md` | Tone guidance for drafted emails |
+| `_lcg/learning-log.md` | Corrections L.C.G. remembers across sessions |
+| `_lcg/templates/` | Meeting briefs, update requests, weekly summaries |
+| `Daily/`, `Meetings/`, `Weekly/` | Working output folders |
+
+> [!TIP]
+> These are just markdown files — browse and edit them in Obsidian anytime.
+
+#### 3c. Run the onboarding wizard
+
+In VS Code → **Copilot Chat** → select **Chief of Staff** agent → type:
+
+```
+/onboarding
+```
+
+The wizard (~5 min) asks about your:
+
+1. **Role** — GM, CSAM, Specialist, or M1 Manager
+2. **Industry** — Segment you cover (scopes CRM + Power BI queries)
+3. **Team** — By territory, seller list, org hierarchy, or just you
+4. **Forecast targets** — Optional quota and coverage multiple
+5. **VIP list** — High-priority senders
+6. **Operating rhythm** — Default weekly cadences
+
+Answers are saved to `_lcg/role.md` and related config files. Re-run `/onboarding` anytime, or edit the files directly.
 
 > [!NOTE]
-> `.env` is git-ignored — your local paths and secrets stay on your machine.
-> The **Obsidian Intelligence Layer** (`oil`) MCP server uses this variable to locate your vault. If you skip this step, vault-dependent features (customer notes, meeting history, learning log) won't work.
+> Skipping onboarding is fine — L.C.G. uses defaults. But personalization makes every workflow sharper.
 
-### Step 3: Start Using L.C.G.
+---
 
-After bootstrap completes, you're ready to go — pick either path:
+### Step 4: Start Using L.C.G.
+
+Pick either path:
 
 **VS Code (recommended for most users):**
 

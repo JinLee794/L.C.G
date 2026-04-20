@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Dir = (Join-Path $HOME 'L.C.G'),
+  [string]$Dir = (Join-Path (Get-Location).Path 'L.C.G'),
   [string]$Ref = 'main',
   [switch]$Force,
   [Parameter(ValueFromRemainingArguments = $true)]
@@ -55,7 +55,14 @@ try {
   Write-Info "Running bootstrap from $Dir..."
   Set-Location $Dir
 
-  & powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1 @BootstrapArgs
+  # Ensure execution policy allows running the bootstrap script in this process
+  # (avoids hardcoding 'powershell' vs 'pwsh' and spawning a mismatched engine).
+  Set-ExecutionPolicy -Scope Process Bypass -Force -ErrorAction SilentlyContinue
+  if ($BootstrapArgs) {
+    & .\scripts\bootstrap.ps1 @BootstrapArgs
+  } else {
+    & .\scripts\bootstrap.ps1
+  }
   exit $LASTEXITCODE
 }
 finally {
