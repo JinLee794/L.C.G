@@ -120,9 +120,10 @@ say "Running bootstrap from $INSTALL_DIR..."
 cd "$INSTALL_DIR"
 
 # When invoked via `curl | bash`, stdin is the pipe (already consumed).
-# Reopen stdin from /dev/tty so bootstrap prompts can read user input.
+# Redirect stdin from /dev/tty on the NEW process only — redirecting the
+# current process would break bash's own script reading from the pipe.
 if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
-  exec </dev/tty
+  exec bash ./scripts/bootstrap.sh ${BOOTSTRAP_ARGS[@]+"${BOOTSTRAP_ARGS[@]}"} </dev/tty
 fi
 
 exec bash ./scripts/bootstrap.sh ${BOOTSTRAP_ARGS[@]+"${BOOTSTRAP_ARGS[@]}"}
