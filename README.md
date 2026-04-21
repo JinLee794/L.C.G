@@ -53,21 +53,6 @@ curl -fsSL https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm "https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)" | iex
 ```
 
-Advanced options (Windows):
-
-```powershell
-# Pick a non-default location and bypass the prompt
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.ps1'))) -Dir 'C:\work\L.C.G'
-
-# Replace a non-empty target folder in place
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.ps1'))) -Force
-
-# Use a specific branch or tag
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.ps1'))) -Ref main
-```
-
-After the download, the installer automatically runs `scripts/bootstrap.ps1` in the install directory. Follow any prompts that appear.
-
 ---
 
 ### Step 1: What The Bootstrap Does
