@@ -154,20 +154,28 @@ function installAzureCli() {
 }
 
 function installCopilotCli() {
-  if (hasRunnableCopilot() || hasGhCopilot()) return true;
+  if (hasRunnableCopilot()) return true;
 
+  info("Copilot CLI missing - installing official @github/copilot npm package...");
+
+  // Primary path: the OFFICIAL GitHub Copilot CLI npm package, which provides
+  // the `copilot` binary. Note: @githubnext/github-copilot-cli is the old
+  // deprecated preview (it installs `github-copilot-cli` / `??`, NOT `copilot`)
+  // and must not be used here.
+  const npmCmd = isWin ? "cmd.exe" : "npm";
+  const npmArgs = isWin
+    ? ["/d", "/s", "/c", "npm install -g @github/copilot"]
+    : ["install", "-g", "@github/copilot"];
+  const npmRc = run(npmCmd, npmArgs);
+  if (npmRc === 0) {
+    ensurePathHasNpmPrefix();
+    normalizeCopilotShim();
+    if (hasRunnableCopilot()) return true;
+  }
+
+  // Fallback path: gh + gh-copilot extension (Windows only; macOS/Linux users
+  // typically already have this wired up through the official package above).
   if (isWin) {
-    info("Copilot CLI missing - installing...");
-
-    // Primary path: npm package that provides the `copilot` command.
-    const npmRc = run("cmd.exe", ["/d", "/s", "/c", "npm install -g @githubnext/github-copilot-cli"]);
-    if (npmRc === 0) {
-      ensurePathHasNpmPrefix();
-      normalizeCopilotShim();
-      if (hasRunnableCopilot()) return true;
-    }
-
-    // Fallback path: gh + gh-copilot extension.
     if (!has("gh")) {
       installWithWingetOrChoco("GitHub.cli", "gh");
     }
@@ -246,13 +254,18 @@ if (hasAz) {
   }
 }
 
-// GitHub Copilot CLI
-let hasCopilot = hasRunnableCopilot() || hasGhCopilot();
+// GitHub Copilot CLI — prefer the real `copilot` binary. Only treat `gh copilot`
+// as acceptable when the official CLI cannot be installed at all.
+let hasCopilot = hasRunnableCopilot();
 if (!hasCopilot && !CHECK_ONLY) {
   hasCopilot = installCopilotCli();
 }
 if (hasCopilot) {
-  ok("GitHub Copilot CLI available");
+  if (hasRunnableCopilot()) {
+    ok("GitHub Copilot CLI available (copilot)");
+  } else {
+    ok("GitHub Copilot CLI available (gh copilot fallback)");
+  }
 } else {
   if (CHECK_ONLY) {
     warn("GitHub Copilot CLI not found");
