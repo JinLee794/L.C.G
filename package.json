@@ -1,11 +1,11 @@
 {
-  "name": "mcaps-iq",
+  "name": "lcg",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AI-powered sales operations toolkit for MCAPS",
+  "description": "AI-powered sales operations toolkit for LCG",
   "bin": {
-    "mcaps": "./bin/mcaps.js"
+    "lcg": "./bin/lcg.js"
   },
   "scripts": {
     "bootstrap": "node scripts/bootstrap.js",

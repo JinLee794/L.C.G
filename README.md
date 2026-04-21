@@ -21,21 +21,27 @@
 Before you begin, make sure you have:
 
 - [ ] **Microsoft corporate VPN** connected
-- [ ] **Microsoft corp account** (e.g., `your-alias@microsoft.com`)
+- [ ] **Microsoft corp account** (e.g., `your-alias@microsoft.com`) for Azure CLI sign-in
+- [ ] **Personal GitHub account** (NOT your `_microsoft` EMU account) for GitHub Packages auth
 - [ ] **GitHub Copilot License** — [Get one here (Microsoft Internal)](https://aka.ms/copilot)
 
 ---
 
 ### Step 0: Run The Installer
 
-> [!CAUTION]
-> **The script creates an `L.C.G` folder in your current directory.** We recommend running from your home folder (`cd ~`). Don't run it inside system directories, shared drives, or folders with unrelated work.
+The one-liner below downloads the repo, verifies prerequisites, installs missing tools (Node.js, Azure CLI, GitHub CLI, VS Code, Obsidian, Copilot CLI), and walks you through Azure + GitHub sign-in. The whole flow takes about 5 minutes.
+
+Installer behavior at a glance:
+
+- **Default install directory:** `~/L.C.G` (your home folder). Press Enter at the prompt to accept, or type any path.
+- **Cloud-synced paths are blocked:** OneDrive, Dropbox, Google Drive, and iCloud locations are rejected so local secrets never sync to the cloud.
+- **Existing folder:** an empty folder is reused; a non-empty folder requires `-Force` and will be replaced.
+- **Execution policy:** set to `Bypass` for the installer process only (no machine-wide change).
 
 #### macOS / Linux
 
 1. Open **Terminal** (Spotlight → search "Terminal").
-2. `cd` to where you want the `L.C.G` folder created (e.g., `cd ~` for your home folder).
-3. Paste this and press **Enter**:
+2. Paste this and press **Enter**:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.sh | bash
@@ -43,67 +49,155 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 
 #### Windows
 
-1. Open **PowerShell** (Start → type "PowerShell" → click **Windows PowerShell**, not Command Prompt).
-2. `cd` to where you want the `L.C.G` folder created (e.g., `cd ~` for your home folder).
-3. Paste this and press **Enter**:
+1. Open **Windows PowerShell** — Start → type "PowerShell" → click **Windows PowerShell** (not Command Prompt, not PowerShell ISE).
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.ps1 | iex
-```
+   ![Open Windows PowerShell from Start](image/README/install-01-powershell.jpg)
 
-The installer creates `L.C.G/` in your current directory and runs the bootstrap automatically. Follow any prompts that appear.
+2. Paste this one-liner and press **Enter**:
+
+   ```powershell
+   Set-ExecutionPolicy -Scope Process Bypass -Force; irm "https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)" | iex
+   ```
 
 ---
 
-### Step 1: What The Bootstrap Does
+### What you'll be asked during the install
+
+The installer is interactive — it will stop and ask you a few things. Here's exactly what to do at each prompt.
+
+#### 1. Install directory
+
+Accept the default (`C:\Users\<you>\L.C.G` on Windows, `~/L.C.G` on macOS/Linux) by pressing **Enter**, or type a different path. Anything inside OneDrive, Dropbox, Google Drive, or iCloud is rejected by design.
+
+![Install directory prompt — press Enter for default](image/README/install-03-install-dir.jpg)
+
+#### 2. Risk acknowledgement
+
+Before any MCP servers are configured, the installer shows a security notice. Read it, then type **`yes`** and press **Enter** to continue. Typing anything else cancels the install.
+
+![Risk acknowledgement — type yes](image/README/install-04-risk-ack.jpg)
+
+#### 3. Azure sign-in (`az login`)
+
+When prompted **`Run 'az login' now? [Y/n]:`**, press **Enter** (or type `Y`). A browser window pops up — **pick your Microsoft work account** (e.g. `alias@microsoft.com`) and click **Continue**.
+
+![az login — choose your Microsoft work account](image/README/install-05-az-login.jpg)
+
+If your tenant shows a subscription picker in the terminal, press **Enter** to accept the default.
+
+#### 4. GitHub Packages auth — **use your personal GitHub account**
+
+This is the single most important step. Private MCP packages (`@microsoft/msx-mcp-server`, `@jinlee794/obsidian-intelligence-layer`) are hosted on GitHub Packages, which requires a GitHub sign-in with `read:packages`.
+
+> [!IMPORTANT]
+> Sign in with your **personal GitHub account** (e.g. `JohnDoe`). **Do NOT** use your Enterprise Managed User account ending in `_microsoft`.
+
+- At the **preferred protocol** prompt, select **HTTPS** (default).
+- At **Authenticate Git with your GitHub credentials?**, press **Enter** for `Yes`.
+
+![GitHub Packages auth — personal account required](image/README/install-06-gh-personal-warning.jpg)
+
+The installer prints a one-time code (e.g. `F7A5-ADE0`) and then opens `https://github.com/login/device` in your browser. Copy the code, switch to the browser, and paste it.
+
+![Copy the one-time device code](image/README/install-07-gh-device-code.jpg)
+
+Sign in on github.com with your **personal** account — if your browser auto-fills the `_microsoft` EMU account, click **Use a different account** first.
+
+![Sign in with personal GitHub account](image/README/install-08-gh-signin.jpg)
+
+Finally, click **Authorize github** to grant the device the `read:packages` scope.
+
+![Authorize the device](image/README/install-09-gh-authorize.jpg)
+
+Return to the terminal. The installer scaffolds your local vault, links the global `lcg` command, and prints `✔ Bootstrap complete.`
+
+---
+
+### Step 1: Start Using L.C.G.
+
+When the installer finishes, everything is ready to go. Pick either path:
+
+**VS Code (recommended):**
+
+Open VS Code in your install folder (`code ~/L.C.G` or just double-click the folder in VS Code) → open **Copilot Chat** (`⌃⌘I` on macOS / `Ctrl+Alt+I` on Windows) → select the **Chief of Staff** agent → start typing.
+
+**Terminal:**
+
+Open any terminal, anywhere, and type `lcg`. A new `copilot` session launches with all L.C.G. servers, agents, and skills loaded.
+
+> Both interfaces are fully equivalent — same agents, skills, and MCP servers. See [Two Ways to Use L.C.G.](#two-ways-to-use-lcg) for details.
+
+---
+
+### Step 2: Personalize It (Optional, 5 Minutes)
+
+Defaults are fine for day one. When you want L.C.G. to match *your* role, VIPs, and cadence, run the onboarding wizard.
+
+In VS Code → **Copilot Chat** → **Chief of Staff** agent → type:
+
+```
+/onboarding
+```
+
+The wizard asks about your:
+
+1. **Role** — GM, CSAM, Specialist, or M1 Manager
+2. **Industry** — Segment you cover (scopes CRM + Power BI queries)
+3. **Team** — By territory, seller list, org hierarchy, or just you
+4. **Forecast targets** — Optional quota and coverage multiple
+5. **VIP list** — High-priority senders
+6. **Operating rhythm** — Default weekly cadences
+
+Answers are saved in your vault under `_lcg/` as plain markdown. Re-run `/onboarding` anytime, or edit the files directly.
+
+---
+
+<details>
+<summary><strong>What the installer actually did (click to expand)</strong></summary>
+
+The installer and bootstrap are designed to finish unattended. For the curious, here's everything that happened:
+
+1. **Downloaded** the repo to your install directory (default: `~/L.C.G`).
+2. **Verified prerequisites** — Node.js 18+, npm, git.
+3. **Installed missing tools automatically** (Windows via `winget` / Chocolatey; macOS via Homebrew):
+   - **Azure CLI** (`az`) — for corp auth against CRM and M365.
+   - **GitHub Copilot CLI** — the official `@github/copilot` npm package, which provides the `copilot` binary used by `lcg`. A `gh copilot` extension is configured as a fallback.
+   - **Obsidian Desktop** — for editing your vault in a nice UI.
+4. **Prompted for `az login`** — sign in as `alias@microsoft.com`.
+5. **Ran `npm install`** for repo dependencies.
+6. **Walked through GitHub Packages auth** — uses your personal GitHub account (not your `_microsoft` EMU account).
+7. **Created a local vault** at `.vault/` inside the install folder and seeded it with starter templates under `_lcg/`.
+8. **Registered the global `lcg` command** using a `.cmd` shim on Windows so it works in restricted-policy PowerShell.
 
 > [!IMPORTANT]
 > When prompted for GitHub auth, use your **personal GitHub account** (e.g., `JohnDoe`), not your Enterprise Managed User account ending in `_microsoft`.
 
-The bootstrap:
-
-1. Installs **Node.js 18+** if missing.
-2. Runs `npm install`.
-3. Walks you through **GitHub Packages auth** and `.env` setup.
-4. Registers the global **`mcaps`** command.
-
 > [!TIP]
-> Already have Node.js? Make sure it's v18+. Run `./scripts/bootstrap.sh --check` (macOS/Linux) or `./scripts/bootstrap.ps1 -Check` (Windows) for a dry prerequisite check.
+> Run `./scripts/bootstrap.sh --check` (macOS/Linux) or `./scripts/bootstrap.ps1 -Check` (Windows) for a dry prerequisite check at any time.
 
-### Step 2: Configure Your `.env` File
+</details>
 
-```bash
-cp .env.example .env
-```
+<details>
+<summary><strong>Use a different Obsidian vault (click to expand)</strong></summary>
 
-Open `.env` and set your vault path:
+The installer creates a local vault inside your install folder (`.vault/`). If you already have an Obsidian vault elsewhere and want L.C.G. to use that instead:
+
+1. Open `.env` in your install folder.
+2. Set the path:
 
 ```dotenv
 OBSIDIAN_VAULT_PATH="/Path/To/Your/Obsidian/Vault"
 ```
 
-> [!NOTE]
-> `.env` is git-ignored — your paths and secrets stay local. The Obsidian Intelligence Layer MCP server uses this variable. Skip this and vault features won't work.
-
-### Step 3: Set Up Your Obsidian Vault
-
-L.C.G. uses an [Obsidian](https://obsidian.md) vault as its local "second brain" — plain markdown files for customer notes, meeting history, drafts, and learning corrections.
-
-#### 3a. Create or choose a vault
-
-If you don't have one yet: download [Obsidian](https://obsidian.md) → **Create new vault** → pick a name and location you'll remember.
-
-Otherwise, note the full path to your existing vault (e.g., `/Users/you/Documents/Obsidian/My Vault`) and make sure Step 2's `.env` points to it.
-
-#### 3b. Bootstrap the vault structure
+3. Seed it with L.C.G. starter templates (safe — never overwrites existing files):
 
 ```bash
-cd ~/L.C.G && npm run vault:init
+npm run vault:init
 ```
 
-This copies starter templates into your vault (never overwrites existing files). Afterward your vault will contain:
+This adds the following under your vault, without touching any of your existing notes:
 
-| Created | Purpose |
+| Added | Purpose |
 |---------|---------|
 | `_lcg/preferences.md` | Triage labels, display preferences |
 | `_lcg/vip-list.md` | VIP senders that get priority in triage |
@@ -113,46 +207,9 @@ This copies starter templates into your vault (never overwrites existing files).
 | `_lcg/templates/` | Meeting briefs, update requests, weekly summaries |
 | `Daily/`, `Meetings/`, `Weekly/` | Working output folders |
 
-> [!TIP]
-> These are just markdown files — browse and edit them in Obsidian anytime.
+> `.env` is git-ignored. Your paths and secrets stay local.
 
-#### 3c. Run the onboarding wizard
-
-In VS Code → **Copilot Chat** → select **Chief of Staff** agent → type:
-
-```
-/onboarding
-```
-
-The wizard (~5 min) asks about your:
-
-1. **Role** — GM, CSAM, Specialist, or M1 Manager
-2. **Industry** — Segment you cover (scopes CRM + Power BI queries)
-3. **Team** — By territory, seller list, org hierarchy, or just you
-4. **Forecast targets** — Optional quota and coverage multiple
-5. **VIP list** — High-priority senders
-6. **Operating rhythm** — Default weekly cadences
-
-Answers are saved to `_lcg/role.md` and related config files. Re-run `/onboarding` anytime, or edit the files directly.
-
-> [!NOTE]
-> Skipping onboarding is fine — L.C.G. uses defaults. But personalization makes every workflow sharper.
-
----
-
-### Step 4: Start Using L.C.G.
-
-Pick either path:
-
-**VS Code (recommended for most users):**
-
-In VS Code, open **Copilot Chat** (sidebar icon or `⌃⌘I` / `Ctrl+Alt+I`) → select the **Chief of Staff** agent → start typing.
-
-**Terminal:**
-
-Open any terminal and type `mcaps` to start an interactive session.
-
-> Both interfaces are fully equivalent — same agents, skills, and MCP servers. See [Two Ways to Use L.C.G.](#two-ways-to-use-lcg) for details.
+</details>
 
 ---
 

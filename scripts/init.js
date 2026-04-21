@@ -13,7 +13,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
@@ -64,6 +64,19 @@ function run(cmd, cwd) {
   });
 }
 
+function runBestEffort(cmd, cwd = ROOT) {
+  try {
+    execSync(cmd, {
+      cwd,
+      stdio: "inherit",
+      shell: isWindows ? true : "/bin/sh",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function tryRun(cmd) {
   try {
     return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -90,8 +103,124 @@ function fail(msg) {
   console.log(`  ✖ ${msg}`);
 }
 
+function commandExists(cmd) {
+  return Boolean(tryRun(isWindows ? `where ${cmd}` : `command -v ${cmd}`));
+}
+
+function ensureOptionalCli(name, verifyCmd, installers) {
+  if (tryRun(verifyCmd)) return true;
+
+  info(`${name} not detected. Attempting automatic install...`);
+
+  if (isWindows) {
+    if (installers.wingetId && commandExists("winget")) {
+      info(`Installing ${name} via winget...`);
+      const okInstall = runBestEffort(
+        `winget install --id ${installers.wingetId} -e --accept-package-agreements --accept-source-agreements`
+      );
+      if (okInstall && tryRun(verifyCmd)) {
+        ok(`${name} installed via winget.`);
+        return true;
+      }
+    }
+
+    if (installers.chocoPackage && commandExists("choco")) {
+      info(`Installing ${name} via Chocolatey...`);
+      const okInstall = runBestEffort(`choco install ${installers.chocoPackage} -y`);
+      if (okInstall && tryRun(verifyCmd)) {
+        ok(`${name} installed via Chocolatey.`);
+        return true;
+      }
+    }
+  } else if (process.platform === "darwin" && installers.brewFormula && commandExists("brew")) {
+    info(`Installing ${name} via Homebrew...`);
+    const okInstall = runBestEffort(`brew install ${installers.brewFormula}`);
+    if (okInstall && tryRun(verifyCmd)) {
+      ok(`${name} installed via Homebrew.`);
+      return true;
+    }
+  }
+
+  warn(`Automatic install did not complete for ${name}.`);
+  if (installers.manualUrl) {
+    warn(`  Install manually: ${installers.manualUrl}`);
+  }
+  return false;
+}
+
+function findObsidianDesktop() {
+  if (isWindows) {
+    const candidates = [
+      join(process.env.LOCALAPPDATA || "", "Obsidian", "Obsidian.exe"),
+      join(process.env.LOCALAPPDATA || "", "Programs", "Obsidian", "Obsidian.exe"),
+      "C:\\Program Files\\Obsidian\\Obsidian.exe",
+      "C:\\Program Files (x86)\\Obsidian\\Obsidian.exe",
+    ].filter(Boolean);
+
+    for (const appPath of candidates) {
+      if (existsSync(appPath)) return appPath;
+    }
+    return null;
+  }
+
+  if (process.platform === "darwin") {
+    const appPath = "/Applications/Obsidian.app";
+    return existsSync(appPath) ? appPath : null;
+  }
+
+  return commandExists("obsidian") ? "obsidian" : null;
+}
+
+function isObsidianInstalledByWinget() {
+  if (!isWindows || !commandExists("winget")) return false;
+  const out = tryRun("winget list --id Obsidian.Obsidian -e");
+  return Boolean(out && out.toLowerCase().includes("obsidian"));
+}
+
+function ensureObsidianDesktop({ autoInstall = false } = {}) {
+  let obsidianPath = findObsidianDesktop();
+  if (obsidianPath) {
+    ok(`Obsidian Desktop detected (${obsidianPath})`);
+    return true;
+  }
+
+  if (!autoInstall) {
+    warn("Obsidian Desktop not found.");
+    warn("  Install: https://obsidian.md/download");
+    return false;
+  }
+
+  info("Obsidian Desktop not detected. Attempting automatic install...");
+
+  if (isWindows && commandExists("winget")) {
+    info("Installing Obsidian via winget...");
+    runBestEffort("winget install --id Obsidian.Obsidian -e --accept-package-agreements --accept-source-agreements");
+  } else if (process.platform === "darwin" && commandExists("brew")) {
+    info("Installing Obsidian via Homebrew...");
+    runBestEffort("brew install --cask obsidian");
+  } else {
+    warn("Automatic Obsidian install is not available on this platform.");
+  }
+
+  obsidianPath = findObsidianDesktop();
+  if (obsidianPath) {
+    ok(`Obsidian Desktop installed (${obsidianPath})`);
+    return true;
+  }
+
+  // winget may return a non-install outcome when app is already present.
+  if (isObsidianInstalledByWinget()) {
+    ok("Obsidian Desktop is already installed.");
+    return true;
+  }
+
+  warn("Obsidian Desktop install did not complete automatically.");
+  warn("  Install: https://obsidian.md/download");
+  return false;
+}
+
 // ── prerequisite validation ─────────────────────────────────────────
-function checkPrereqs() {
+async function checkPrereqs({ autoInstallOptional = false } = {}) {
   heading("Checking prerequisites");
   let passed = true;
 
@@ -114,23 +243,65 @@ function checkPrereqs() {
   }
 
   // Azure CLI — optional but recommended
-  const azVersion = tryRun("az version --query '\"azure-cli\"' -o tsv");
+  let azVersion = tryRun("az version --query '\"azure-cli\"' -o tsv");
+  if (!azVersion && autoInstallOptional) {
+    ensureOptionalCli(
+      "Azure CLI",
+      "az version --query '\"azure-cli\"' -o tsv",
+      {
+        wingetId: "Microsoft.AzureCLI",
+        chocoPackage: "azure-cli",
+        brewFormula: "azure-cli",
+        manualUrl: "https://learn.microsoft.com/cli/azure/install-azure-cli",
+      }
+    );
+    azVersion = tryRun("az version --query '\"azure-cli\"' -o tsv");
+  }
   if (azVersion) {
     ok(`Azure CLI ${azVersion}`);
 
     // Check if the user is actually signed in
-    const account = tryRun("az account show --query user.name -o tsv");
+    let account = tryRun("az account show --query user.name -o tsv");
     if (account) {
       ok(`Signed in as ${account}`);
     } else {
       warn("Azure CLI installed but not signed in — run: az login");
+
+      if (autoInstallOptional && process.stdin.isTTY) {
+        console.log("\n  Azure sign-in is required to continue setup.");
+        console.log("  Use your Microsoft account, for example: alias@microsoft.com");
+        console.log("  During subscription selection, you can press Enter to accept any default option.\n");
+
+        const runAzLogin = await ask("  Run 'az login' now? [Y/n]: ");
+        if (!runAzLogin || runAzLogin.toLowerCase() === "y" || runAzLogin.toLowerCase() === "yes") {
+          const loginOk = runBestEffort("az login");
+          if (!loginOk) {
+            warn("Azure login was not completed. You can run 'az login' later.");
+          }
+          account = tryRun("az account show --query user.name -o tsv");
+          if (account) {
+            ok(`Signed in as ${account}`);
+          } else {
+            warn("Azure CLI still not signed in.");
+          }
+        }
+      }
     }
   } else {
     warn("Azure CLI not found — needed for CRM authentication.");
     warn("  Install: https://learn.microsoft.com/cli/azure/install-azure-cli");
   }
 
-  const ghVersion = tryRun("gh --version");
+  let ghVersion = tryRun("gh --version");
+  if (!ghVersion && autoInstallOptional) {
+    ensureOptionalCli("GitHub CLI", "gh --version", {
+      wingetId: "GitHub.cli",
+      chocoPackage: "gh",
+      brewFormula: "gh",
+      manualUrl: "https://github.com/cli/cli#installation",
+    });
+    ghVersion = tryRun("gh --version");
+  }
   if (ghVersion) {
     ok(`GitHub CLI ${ghVersion.split("\n")[0].replace("gh version ", "")}`);
     const ghStatus = tryRun("gh auth status");
@@ -161,6 +332,8 @@ function checkPrereqs() {
     console.log();
   }
 
+  ensureObsidianDesktop({ autoInstall: autoInstallOptional });
+
   return passed;
 }
 
@@ -179,8 +352,8 @@ function initServers() {
 }
 
 // ── check-only mode ─────────────────────────────────────────────────
-function checkOnly() {
-  const prereqsOk = checkPrereqs();
+async function checkOnly() {
+  const prereqsOk = await checkPrereqs();
 
   heading("Checking package-based MCP servers");
   for (const server of PACKAGE_SERVERS) {
@@ -201,18 +374,18 @@ function checkOnly() {
 
 // ── global alias registration ───────────────────────────────────────
 function printAliasFallback() {
-  const binPath = join(ROOT, "bin", "mcaps.js");
+  const binPath = join(ROOT, "bin", "lcg.js");
   if (isWindows) {
     const escaped = binPath.replace(/\\/g, "\\\\");
     console.log();
     warn("  Alternatives for PowerShell:");
     warn("");
     warn("  Option 1 — Add a function to your PowerShell profile:");
-    warn(`    Add-Content $PROFILE 'function mcaps { node "${escaped}" @args }'`);
+    warn(`    Add-Content $PROFILE 'function lcg { node "${escaped}" @args }'`);
     warn("    . $PROFILE   # reload your profile");
     warn("");
     warn("  Option 2 — Use from the repo directory:");
-    warn("    node bin\\mcaps.js");
+    warn("    node bin\\lcg.js");
     warn("");
     warn("  Option 3 — Retry from an elevated terminal:");
     warn("    npm link --ignore-scripts");
@@ -222,29 +395,157 @@ function printAliasFallback() {
   }
 }
 
+function quotePsSingle(value) {
+  return String(value).replace(/'/g, "''");
+}
+
+function ensureUserPathContains(pathEntry) {
+  if (!isWindows || !pathEntry) return false;
+
+  const escaped = quotePsSingle(pathEntry);
+  const cmd = [
+    "$entry='" + escaped + "'",
+    "$userPath=[Environment]::GetEnvironmentVariable('Path','User')",
+    "if ([string]::IsNullOrWhiteSpace($userPath)) { $userPath='' }",
+    "$parts=@()",
+    "if ($userPath) { $parts=$userPath -split ';' }",
+    "$exists=$parts | Where-Object { $_.Trim().ToLowerInvariant() -eq $entry.ToLowerInvariant() }",
+    "if (-not $exists) {",
+    "  $next=($userPath.TrimEnd(';') + ';' + $entry).Trim(';')",
+    "  [Environment]::SetEnvironmentVariable('Path',$next,'User')",
+    "}",
+  ].join("; ");
+
+  return runBestEffort(`powershell -NoProfile -ExecutionPolicy Bypass -Command \"${cmd}\"`, ROOT);
+}
+
+function addPathToCurrentProcess(pathEntry) {
+  if (!pathEntry) return;
+  const current = process.env.PATH || "";
+  const hasEntry = current
+    .split(";")
+    .map((p) => p.trim().toLowerCase())
+    .includes(pathEntry.trim().toLowerCase());
+  if (!hasEntry) {
+    process.env.PATH = current ? `${current};${pathEntry}` : pathEntry;
+  }
+}
+
+function getWindowsCommandCandidates(command) {
+  if (!isWindows || !command) return [];
+
+  const out = tryRun(`where ${command}`);
+  if (!out) return [];
+
+  return out
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function hasNonPs1WindowsCommand(command) {
+  const candidates = getWindowsCommandCandidates(command);
+  if (candidates.length === 0) return false;
+  return candidates.some((p) => /\.(cmd|exe|bat)$/i.test(p) || /\\[^\\.]+$/i.test(p));
+}
+
+function hasReachableLcgCommand() {
+  if (!isWindows) return Boolean(tryRun("which lcg"));
+  return hasNonPs1WindowsCommand("lcg");
+}
+
+function hasLcgShim(npmPrefix) {
+  if (!npmPrefix) return false;
+  const candidates = [
+    join(npmPrefix, "lcg.cmd"),
+    join(npmPrefix, "lcg.bat"),
+    join(npmPrefix, "lcg"),
+  ];
+  return candidates.some((p) => existsSync(p));
+}
+
+function normalizeLcgShims(npmPrefix) {
+  if (!isWindows || !npmPrefix) return;
+  const psShim = join(npmPrefix, "lcg.ps1");
+  if (existsSync(psShim)) {
+    try {
+      execSync(`del /f /q "${psShim}"`, { stdio: "pipe", shell: true });
+    } catch {
+      // Best effort only.
+    }
+  }
+}
+
+function createLcgShims(npmPrefix) {
+  if (!isWindows || !npmPrefix) return false;
+
+  try {
+    if (!existsSync(npmPrefix)) {
+      mkdirSync(npmPrefix, { recursive: true });
+    }
+
+    const lcgJs = join(ROOT, "bin", "lcg.js");
+    const escapedCmdPath = lcgJs.replace(/"/g, "\\\"");
+
+    const cmdShim = join(npmPrefix, "lcg.cmd");
+    writeFileSync(cmdShim, `@echo off\r\nnode "${escapedCmdPath}" %*\r\n`, "utf-8");
+
+    // Do not create a .ps1 shim. On corp-managed machines with Restricted
+    // execution policy, PowerShell prefers .ps1 and then blocks execution.
+    normalizeLcgShims(npmPrefix);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensurePowerShellProfileLcg() {
+  if (!isWindows) return false;
+
+  const policy = (tryRun("powershell -NoProfile -Command \"Get-ExecutionPolicy\"") || "").trim().toLowerCase();
+  if (policy === "restricted" || policy === "allsigned") {
+    return false;
+  }
+
+  const lcgJs = join(ROOT, "bin", "lcg.js");
+  const escapedPath = lcgJs.replace(/'/g, "''");
+  const cmd = [
+    "$profilePath=$PROFILE.CurrentUserCurrentHost",
+    "$dir=Split-Path -Parent $profilePath",
+    "if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }",
+    "if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Path $profilePath -Force | Out-Null }",
+    `$fn=\"function lcg { node '${escapedPath}' @args }\"`,
+    "$raw=Get-Content -Path $profilePath -Raw",
+    "if (-not $raw) { $raw='' }",
+    "if ($raw -notmatch 'function\\s+lcg\\s*\\{') { Add-Content -Path $profilePath -Value \"`r`n$fn`r`n\" }",
+  ].join("; ");
+
+  return runBestEffort(`powershell -NoProfile -ExecutionPolicy Bypass -Command \"${cmd}\"`, ROOT);
+}
+
 function registerAlias() {
   console.log();
   console.log("  \x1b[1m\x1b[36m╔══════════════════════════════════════════════════════════╗\x1b[0m");
   console.log("  \x1b[1m\x1b[36m║                                                          ║\x1b[0m");
-  console.log("  \x1b[1m\x1b[36m║   Installing the 'mcaps' CLI binary globally              ║\x1b[0m");
+  console.log("  \x1b[1m\x1b[36m║   Installing the 'lcg' CLI binary globally              ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m║                                                          ║\x1b[0m");
-  console.log("  \x1b[1m\x1b[36m║   This registers bin/mcaps.js as a global command so      ║\x1b[0m");
-  console.log("  \x1b[1m\x1b[36m║   you can run 'mcaps' from any terminal, anywhere.        ║\x1b[0m");
+  console.log("  \x1b[1m\x1b[36m║   This registers bin/lcg.js as a global command so      ║\x1b[0m");
+  console.log("  \x1b[1m\x1b[36m║   you can run 'lcg' from any terminal, anywhere.        ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m║                                                          ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m╚══════════════════════════════════════════════════════════╝\x1b[0m");
   console.log();
 
   // Ensure bin script is executable on Unix
   if (!isWindows) {
-    const binScript = join(ROOT, "bin", "mcaps.js");
+    const binScript = join(ROOT, "bin", "lcg.js");
     try {
       execSync(`chmod +x "${binScript}"`, { stdio: "pipe" });
     } catch { /* best-effort */ }
   }
 
-  // Check if 'mcaps' is already linked and working
-  const whichCmd = isWindows ? "where mcaps" : "which mcaps";
-  const existing = tryRun(whichCmd);
+  // Check if 'lcg' is already linked and working
+  const existing = hasReachableLcgCommand();
 
   try {
     // --ignore-scripts prevents recursive postinstall
@@ -256,26 +557,96 @@ function registerAlias() {
       shell: isWindows ? true : "/bin/sh",
     });
   } catch {
-    // If link failed but 'mcaps' already exists and works, that's fine
+    // If link failed but 'lcg' already exists and works, that's fine
     if (existing) {
-      ok("'mcaps' is already registered globally — no changes needed.");
+      ok("'lcg' is already registered globally — no changes needed.");
       return true;
     }
+
+    if (isWindows) {
+      const npmPrefix = tryRun("npm config get prefix");
+      if (npmPrefix) {
+        addPathToCurrentProcess(npmPrefix);
+        ensureUserPathContains(npmPrefix);
+        createLcgShims(npmPrefix);
+      }
+      ensurePowerShellProfileLcg();
+
+      if (hasReachableLcgCommand() || (npmPrefix && hasLcgShim(npmPrefix))) {
+        ok("'lcg' command was configured automatically.");
+        info("If this terminal cannot run 'lcg' yet, open a new PowerShell window.");
+        return true;
+      }
+    }
+
     warn("Could not register global alias automatically.");
     printAliasFallback();
     return false;
   }
 
+  // npm link on Windows may leave a blocked .ps1 shim; normalize immediately.
+  if (isWindows) {
+    const npmPrefix = tryRun("npm config get prefix");
+    if (npmPrefix) {
+      normalizeLcgShims(npmPrefix);
+      createLcgShims(npmPrefix);
+    }
+  }
+
   // Verify the command is actually reachable after linking
-  const found = tryRun(whichCmd);
+  const found = hasReachableLcgCommand();
 
   if (found) {
-    ok("'mcaps' is now available globally — try it from any directory!");
+    ok("'lcg' is now available globally — try it from any directory!");
     return true;
   }
 
+  // On Windows, npm link often succeeds but PATH/state is stale.
+  if (isWindows) {
+    const npmPrefix = tryRun("npm config get prefix");
+    if (npmPrefix) {
+      normalizeLcgShims(npmPrefix);
+
+      // Ensure shim launchers exist even if npm link succeeds but does not
+      // materialize command shims in this environment.
+      createLcgShims(npmPrefix);
+
+      const hadPrefixInSession = (process.env.PATH || "")
+        .split(";")
+        .map((p) => p.trim().toLowerCase())
+        .includes(npmPrefix.trim().toLowerCase());
+
+      addPathToCurrentProcess(npmPrefix);
+      const persisted = ensureUserPathContains(npmPrefix);
+      if (persisted && !hadPrefixInSession) {
+        info("Persisted npm global bin path to User PATH.");
+      }
+
+      const foundAfterRepair = hasReachableLcgCommand();
+      if (foundAfterRepair) {
+        ok("'lcg' is now available globally — PATH was repaired automatically.");
+        return true;
+      }
+
+      // Accept success if the shim exists. In some PowerShell sessions,
+      // command discovery lags until a new terminal is opened.
+      if (hasLcgShim(npmPrefix)) {
+        ok("'lcg' shim was installed and PATH was configured automatically.");
+        info("Open a new terminal to use 'lcg' globally.");
+        return true;
+      }
+
+      // Last automatic fallback: persist a PowerShell profile function.
+      if (ensurePowerShellProfileLcg()) {
+        ok("PowerShell profile was updated with an 'lcg' function automatically.");
+        info("Open a new PowerShell window and run 'lcg'.");
+        return true;
+      }
+    }
+  }
+
   // npm link appeared to succeed but the command isn't callable
-  warn("npm link succeeded, but 'mcaps' was not found in your PATH.");
+  warn("npm link succeeded, but 'lcg' was not found in your PATH.");
 
   if (isWindows) {
     const npmPrefix = tryRun("npm config get prefix");
@@ -457,10 +828,10 @@ function runVaultSync() {
 const checkMode = process.argv.includes("--check");
 
 if (checkMode) {
-  const ok = checkOnly();
+  const ok = await checkOnly();
   process.exit(ok ? 0 : 1);
 } else {
-  const prereqsOk = checkPrereqs();
+  const prereqsOk = await checkPrereqs({ autoInstallOptional: true });
   if (!prereqsOk) {
     console.log("\nFix prerequisite issues above, then re-run this script.");
     process.exit(1);
@@ -521,12 +892,12 @@ if (checkMode) {
       console.log();
       console.log("  \x1b[1m\x1b[32m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[32m│   ★  'mcaps' CLI installed successfully!                    │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                    │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│   Run from any terminal, any directory:                     │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[33m│       'mcaps'                                                 │\x1b[0m");
-      console.log("  \x1b[1m\x1b[33m│       'mcaps' -p \"morning triage\"                             │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│       'lcg'                                                 │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│       'lcg' -p \"morning triage\"                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,          │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│   agents, and skills — no need to cd into the repo.        │\x1b[0m");
@@ -537,15 +908,30 @@ if (checkMode) {
       console.log();
       console.log("  \x1b[1m\x1b[33m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[33m│   ⚠  'mcaps' CLI was NOT installed globally.                │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│   ⚠  'lcg' CLI was NOT installed globally.                │\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│   See the instructions above to register it manually.      │\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[33m└─────────────────────────────────────────────────────────────┘\x1b[0m");
       console.log();
     }
 
-    // Check if already signed in to provide the right next step
-    const account = tryRun("az account show --query user.name -o tsv");
+    // Check if already signed in; if not, offer interactive az login now.
+    let account = tryRun("az account show --query user.name -o tsv");
+    if (!account && process.stdin.isTTY && commandExists("az")) {
+      console.log("\n  Azure sign-in is required to use CRM/M365-connected workflows.");
+      console.log("  Use your Microsoft account, for example: alias@microsoft.com");
+      console.log("  During subscription selection, you can press Enter to accept any default option.\n");
+
+      const runAzLogin = await ask("  Run 'az login' now? [Y/n]: ");
+      if (!runAzLogin || runAzLogin.toLowerCase() === "y" || runAzLogin.toLowerCase() === "yes") {
+        const loginOk = runBestEffort("az login");
+        if (!loginOk) {
+          warn("Azure login was not completed. You can run 'az login' later.");
+        }
+        account = tryRun("az account show --query user.name -o tsv");
+      }
+    }
+
     if (account) {
       console.log(`
   You're signed in as ${account}. Everything is ready!
@@ -554,17 +940,19 @@ if (checkMode) {
     1. Open this repo in VS Code:  code .
     2. MCP servers auto-start via .vscode/mcp.json
     3. Open Copilot chat (Cmd+Shift+I) and try: "Who am I in MSX?"
-    4. Or just run 'mcaps' from any terminal!
+    4. Or just run 'lcg' from any terminal!
 `);
     } else {
       console.log(`
   Next steps:
     1. Connect to Microsoft VPN
     2. Sign in to Azure:        az login
+       Use your Microsoft account (example: alias@microsoft.com)
+       During subscription selection, press Enter to choose any default option
     3. Open this repo in VS Code:  code .
     4. MCP servers auto-start via .vscode/mcp.json
     5. Open Copilot chat (Cmd+Shift+I) and try: "Who am I in MSX?"
-    6. Or just run 'mcaps' from any terminal!
+    6. Or just run 'lcg' from any terminal!
 `);
     }
   } else {

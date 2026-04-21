@@ -28,10 +28,10 @@ $MinNodeMajor = 18
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root      = Split-Path -Parent $ScriptDir
 
-function Say-Ok   ($m) { Write-Host "  ✔ $m" -ForegroundColor Green }
-function Say-Warn ($m) { Write-Host "  ⚠ $m" -ForegroundColor Yellow }
-function Say-Fail ($m) { Write-Host "  ✖ $m" -ForegroundColor Red }
-function Say-Info ($m) { Write-Host "  → $m" -ForegroundColor Cyan }
+function Say-Ok   ($m) { Write-Host "  [OK] $m" -ForegroundColor Green }
+function Say-Warn ($m) { Write-Host "  [WARN] $m" -ForegroundColor Yellow }
+function Say-Fail ($m) { Write-Host "  [FAIL] $m" -ForegroundColor Red }
+function Say-Info ($m) { Write-Host "  [INFO] $m" -ForegroundColor Cyan }
 
 function Test-Node {
   $node = Get-Command node -ErrorAction SilentlyContinue
@@ -43,12 +43,12 @@ function Test-Node {
 
 function Install-Node {
   if (Get-Command winget -ErrorAction SilentlyContinue) {
-    Say-Info "Installing Node via winget…"
+    Say-Info "Installing Node via winget..."
     & winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
     return
   }
   if (Get-Command choco -ErrorAction SilentlyContinue) {
-    Say-Info "Installing Node via Chocolatey…"
+    Say-Info "Installing Node via Chocolatey..."
     & choco install nodejs-lts -y
     return
   }
@@ -57,8 +57,8 @@ function Install-Node {
   throw "Cannot auto-install Node.js"
 }
 
-# ── Ensure Node ────────────────────────────────────────────────────
-Write-Host "━━━ Ensuring Node.js >= $MinNodeMajor ━━━" -ForegroundColor Cyan
+# -- Ensure Node ----------------------------------------------------
+Write-Host "--- Ensuring Node.js >= $MinNodeMajor ---" -ForegroundColor Cyan
 
 if (Test-Node) {
   Say-Ok "Node.js $((& node -v)) detected"
@@ -73,13 +73,13 @@ if (Test-Node) {
   if (-not (Test-Node)) {
     Say-Fail "Node installation did not succeed (or PATH needs a new shell)."
     Say-Info "Open a new PowerShell window and re-run this script."
-    exit 1
+    return 1
   }
   Say-Ok "Node.js $((& node -v)) installed"
 }
 
-# ── Hand off to bootstrap.js ──────────────────────────────────────
-Write-Host "━━━ Handing off to scripts/bootstrap.js ━━━" -ForegroundColor Cyan
+# -- Hand off to bootstrap.js --------------------------------------
+Write-Host "--- Handing off to scripts/bootstrap.js ---" -ForegroundColor Cyan
 
 $argsToPass = @()
 if ($Check)       { $argsToPass += "--check" }
@@ -87,4 +87,7 @@ if ($SkipInstall) { $argsToPass += "--skip-install" }
 if ($Rest)        { $argsToPass += $Rest }
 
 & node (Join-Path $Root "scripts\bootstrap.js") @argsToPass
-exit $LASTEXITCODE
+if ($LASTEXITCODE -is [int]) {
+  return $LASTEXITCODE
+}
+return 0

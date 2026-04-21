@@ -12,10 +12,10 @@ Walk the user through L.C.G's automation catalog and help them schedule selected
 - All scheduled tasks MUST follow the `LCG-` naming prefix convention.
 - Before creating any task, ALWAYS run the task inventory from the dev-task-scheduler skill (Flow 1) to detect duplicates and sprawl.
 - All automations run through a single Node.js entry point: `node scripts/run.js <task-name>`.
-- The repo path is stored in `$env:MCAPS_REPO` or defaults to `$HOME\Repos\_InternalTools\L.C.G`.
+- The repo path is stored in `$env:LCG_REPO` or defaults to `$HOME\Repos\_InternalTools\L.C.G`.
 - No bash or Git Bash required — everything runs on Node.js (v18+).
 - The one exception is **Outlook Rules** (`setup-outlook-rules.ps1`) which uses PowerShell + Exchange Online directly.
-- Environment variables (`MCAPS_REPO`, `OBSIDIAN_VAULT_PATH`) must be set at the user level so scheduled tasks inherit them.
+- Environment variables (`LCG_REPO`, `OBSIDIAN_VAULT_PATH`) must be set at the user level so scheduled tasks inherit them.
 
 ## Step 1 — Welcome & Explain
 
@@ -106,7 +106,7 @@ Before scheduling, check that the environment is ready. Run these checks in term
 node --version
 
 # Check for environment variables
-[System.Environment]::GetEnvironmentVariable("MCAPS_REPO", "User")
+[System.Environment]::GetEnvironmentVariable("LCG_REPO", "User")
 [System.Environment]::GetEnvironmentVariable("OBSIDIAN_VAULT_PATH", "User")
 
 # Verify task runner loads
@@ -116,14 +116,14 @@ node scripts/run.js list
 If anything is missing, explain to the user in plain language:
 
 - **Node.js missing/old:** "L.C.G's automations need Node.js version 18 or newer. You can install it from https://nodejs.org."
-- **MCAPS_REPO not set:** "I need to know where the L.C.G repo lives on your machine. What folder is it in? I'll set it up for you."
+- **LCG_REPO not set:** "I need to know where the L.C.G repo lives on your machine. What folder is it in? I'll set it up for you."
 - **OBSIDIAN_VAULT_PATH not set:** "I need the path to your Obsidian vault so L.C.G knows where to write notes. What folder is your vault in?"
 - **Copilot CLI missing:** "The automations use GitHub Copilot's CLI to run prompts. Let me check if it's installed through VS Code."
 
 Set any missing environment variables at the user level:
 
 ```powershell
-[System.Environment]::SetEnvironmentVariable("MCAPS_REPO", "<path>", "User")
+[System.Environment]::SetEnvironmentVariable("LCG_REPO", "<path>", "User")
 [System.Environment]::SetEnvironmentVariable("OBSIDIAN_VAULT_PATH", "<path>", "User")
 ```
 
@@ -179,13 +179,13 @@ For each selected automation:
 3. **Build and register the task** using the dev-task-scheduler skill (Flow 2). All Node tasks use the same pattern:
 
    ```powershell
-   $repoDir = [System.Environment]::GetEnvironmentVariable("MCAPS_REPO", "User")
+   $repoDir = [System.Environment]::GetEnvironmentVariable("LCG_REPO", "User")
    $action = New-ScheduledTaskAction -Execute "node" -Argument "scripts/run.js <TASK-NAME>" -WorkingDirectory $repoDir
    ```
 
    **For Outlook Rules (PowerShell, one-time):**
    ```powershell
-   $repoDir = [System.Environment]::GetEnvironmentVariable("MCAPS_REPO", "User")
+   $repoDir = [System.Environment]::GetEnvironmentVariable("LCG_REPO", "User")
    $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-File `"$repoDir\scripts\setup-outlook-rules.ps1`"" -WorkingDirectory $repoDir
    ```
 
@@ -204,14 +204,14 @@ For each selected automation:
    If the user agrees, execute the runner command directly in the terminal:
 
    ```powershell
-   $repoDir = [System.Environment]::GetEnvironmentVariable("MCAPS_REPO", "User")
+   $repoDir = [System.Environment]::GetEnvironmentVariable("LCG_REPO", "User")
    Set-Location $repoDir
    node scripts/run.js <TASK-NAME>
    ```
 
    **For Outlook Rules (PowerShell, one-time):**
    ```powershell
-   $repoDir = [System.Environment]::GetEnvironmentVariable("MCAPS_REPO", "User")
+   $repoDir = [System.Environment]::GetEnvironmentVariable("LCG_REPO", "User")
    Set-Location $repoDir
    pwsh.exe -File scripts\setup-outlook-rules.ps1
    ```

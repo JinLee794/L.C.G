@@ -41,9 +41,43 @@ function run(command, args, options = {}) {
   }).trim();
 }
 
+function ensureGhOnPath() {
+  if (process.platform !== "win32") return;
+
+  const candidates = [
+    "C:\\Program Files\\GitHub CLI",
+    "C:\\Program Files (x86)\\GitHub CLI",
+    "C:\\Users\\Public\\scoop\\apps\\gh\\current\\bin",
+  ];
+
+  for (const dir of candidates) {
+    if (!existsSync(join(dir, "gh.exe"))) continue;
+    const pathParts = (process.env.PATH || "").split(";").map((p) => p.trim().toLowerCase());
+    if (!pathParts.includes(dir.toLowerCase())) {
+      process.env.PATH = `${process.env.PATH};${dir}`;
+    }
+    break;
+  }
+}
+
 function hasGhCli() {
-  const result = spawnSync("gh", ["--version"], { stdio: "ignore" });
-  return !result.error && result.status === 0;
+  ensureGhOnPath();
+
+  const candidates = process.platform === "win32"
+    ? [
+        "gh",
+        "C:\\Program Files\\GitHub CLI\\gh.exe",
+        "C:\\Program Files (x86)\\GitHub CLI\\gh.exe",
+        "C:\\Users\\Public\\scoop\\apps\\gh\\current\\bin\\gh.exe",
+      ]
+    : ["gh"];
+
+  for (const cmd of candidates) {
+    const result = spawnSync(cmd, ["--version"], { stdio: "ignore", shell: process.platform === "win32" && cmd === "gh" });
+    if (!result.error && result.status === 0) return true;
+  }
+
+  return false;
 }
 
 function hasCommand(cmd) {
@@ -74,18 +108,22 @@ async function tryInstallGhCli() {
     process.stderr.write("[auth:packages] Homebrew install failed.\n");
   } else if (isWin && hasCommand("winget")) {
     process.stdout.write("[auth:packages] Detected Windows with winget. Installing GitHub CLI…\n");
-    const result = spawnSync("winget", ["install", "GitHub.cli", "--silent", "--accept-package-agreements", "--accept-source-agreements"], { cwd: ROOT, stdio: "inherit" });
-    if (!result.error && result.status === 0) {
-      // Add GitHub CLI to PATH for the current process
-      const ghPath = "C:\\Program Files\\GitHub CLI";
-      process.env.PATH = `${process.env.PATH};${ghPath}`;
-      process.stdout.write(`[auth:packages] GitHub CLI installed. Added ${ghPath} to PATH for this session.\n`);
-      process.stdout.write("[auth:packages] To make this permanent, run in PowerShell:\n");
-      process.stdout.write(`  $env:Path += ";${ghPath}"\n`);
-      process.stdout.write(`  [Environment]::SetEnvironmentVariable("PATH", $env:PATH + ";${ghPath}", "User")\n`);
+    const result = spawnSync("winget", ["install", "--id", "GitHub.cli", "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements"], { cwd: ROOT, stdio: "inherit" });
+    if ((!result.error && result.status === 0) || hasGhCli()) {
+      ensureGhOnPath();
+      process.stdout.write("[auth:packages] GitHub CLI is available.\n");
       return;
     }
     process.stderr.write("[auth:packages] winget install failed.\n");
+  } else if (isWin && hasCommand("choco")) {
+    process.stdout.write("[auth:packages] Detected Windows with Chocolatey. Installing GitHub CLI…\n");
+    const result = spawnSync("choco", ["install", "gh", "-y"], { cwd: ROOT, stdio: "inherit", shell: true });
+    if ((!result.error && result.status === 0) || hasGhCli()) {
+      ensureGhOnPath();
+      process.stdout.write("[auth:packages] GitHub CLI is available.\n");
+      return;
+    }
+    process.stderr.write("[auth:packages] Chocolatey install failed.\n");
   } else if (isWin) {
     process.stderr.write("[auth:packages] winget not found. Install GitHub CLI manually:\n");
     process.stderr.write("  https://cli.github.com/\n");
@@ -212,7 +250,7 @@ function upsertManagedBlock(filePath, block) {
   // Remove our existing managed block
   const pattern = new RegExp(`${MANAGED_START}[\\s\\S]*?${MANAGED_END}\\n?`, "m");
   current = current.replace(pattern, "");
-  // Remove other tools' managed blocks for the same registry (e.g. mcaps-iq)
+  // Remove other tools' managed blocks for the same registry (e.g. lcg)
   // to prevent stale token conflicts — only one authToken per registry should exist
   current = current.replace(/^# >>> .+ github-packages auth >>>[\s\S]*?# <<< .+ github-packages auth <<<\n?/gm, "");
   // Remove any bare //npm.pkg.github.com/:_authToken lines (stale PATs from manual edits)

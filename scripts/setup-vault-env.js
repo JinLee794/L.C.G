@@ -7,7 +7,7 @@
  * all contexts: VS Code MCP servers, Copilot CLI, terminal sessions, etc.
  *
  * Sets both:
- *   OBSIDIAN_VAULT       — used by .vscode/mcp.json defaults and bin/mcaps.js
+ *   OBSIDIAN_VAULT       — used by .vscode/mcp.json defaults and bin/lcg.js
  *   OBSIDIAN_VAULT_PATH  — used by the OIL MCP server and helper scripts
  *
  * Supports:
@@ -36,8 +36,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const isWindows = process.platform === "win32";
 
-const BLOCK_START = "# >>> 'mcaps' vault config >>>";
-const BLOCK_END = "# <<< 'mcaps' vault config <<<";
+const BLOCK_START = "# >>> 'lcg' vault config >>>";
+const BLOCK_END = "# <<< 'lcg' vault config <<<";
 
 function ok(msg) { console.log(`  ✔ ${msg}`); }
 function warn(msg) { console.log(`  ⚠ ${msg}`); }
@@ -233,7 +233,7 @@ function checkState() {
       const match = block.match(/OBSIDIAN_VAULT="([^"]+)"/);
       ok(`${shell} profile (${profilePath}): configured${match ? ` → ${match[1]}` : ""}`);
     } else {
-      warn(`${shell} profile (${profilePath}): no 'mcaps' vault block found`);
+      warn(`${shell} profile (${profilePath}): no 'lcg' vault block found`);
     }
   } else {
     warn(`${shell} profile (${profilePath}): file does not exist`);
@@ -272,7 +272,7 @@ if (isCLI) {
       ok(`Removed vault config block from ${result.shell} profile: ${result.profilePath}`);
       printReloadHint(result.shell, result.profilePath);
     } else {
-      warn("No 'mcaps' vault block found in shell profile — nothing to remove.");
+      warn("No 'lcg' vault block found in shell profile — nothing to remove.");
     }
     process.exit(0);
   }
