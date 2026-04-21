@@ -28,14 +28,17 @@ Before you begin, make sure you have:
 
 ### Step 0: Run The Installer
 
-> [!CAUTION]
-> **The script creates an `L.C.G` folder in your current directory.** We recommend running from your home folder (`cd ~`). Don't run it inside system directories, shared drives, or folders with unrelated work.
+The installer prompts you for an install location, downloads the repo, and runs the bootstrap for you. Defaults and behavior:
+
+- **Default install directory:** `~/L.C.G` (your home folder). Press Enter at the prompt to accept, or type any path.
+- **Cloud-synced paths are blocked:** OneDrive, Dropbox, Google Drive, and iCloud locations are rejected so local secrets never sync to the cloud.
+- **Existing folder:** an empty folder is reused; a non-empty folder requires `-Force` and will be replaced.
+- **Execution policy:** set to `Bypass` for the installer process only (no machine-wide change).
 
 #### macOS / Linux
 
 1. Open **Terminal** (Spotlight → search "Terminal").
-2. `cd` to where you want the `L.C.G` folder created (e.g., `cd ~` for your home folder).
-3. Paste this and press **Enter**:
+2. Paste this and press **Enter**:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.sh | bash
@@ -44,14 +47,26 @@ curl -fsSL https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.
 #### Windows
 
 1. Open **PowerShell** (Start → type "PowerShell" → click **Windows PowerShell**, not Command Prompt).
-2. `cd` to where you want the `L.C.G` folder created (e.g., `cd ~` for your home folder).
-3. Paste this and press **Enter**:
+2. Paste this and press **Enter**:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm "https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)" | iex
 ```
 
-The installer creates `L.C.G/` in your current directory and runs the bootstrap automatically. Follow any prompts that appear.
+Advanced options (Windows):
+
+```powershell
+# Pick a non-default location and bypass the prompt
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.ps1'))) -Dir 'C:\work\L.C.G'
+
+# Replace a non-empty target folder in place
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.ps1'))) -Force
+
+# Use a specific branch or tag
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/lenvolk/L.C.G/main/scripts/install.ps1'))) -Ref main
+```
+
+After the download, the installer automatically runs `scripts/bootstrap.ps1` in the install directory. Follow any prompts that appear.
 
 ---
 
@@ -60,12 +75,17 @@ The installer creates `L.C.G/` in your current directory and runs the bootstrap 
 > [!IMPORTANT]
 > When prompted for GitHub auth, use your **personal GitHub account** (e.g., `JohnDoe`), not your Enterprise Managed User account ending in `_microsoft`.
 
-The bootstrap:
+The bootstrap is designed to finish unattended whenever possible. It will:
 
-1. Installs **Node.js 18+** if missing.
-2. Runs `npm install`.
-3. Walks you through **GitHub Packages auth** and `.env` setup.
-4. Registers the global **`mcaps`** command.
+1. **Verify prerequisites** — Node.js 18+, npm, git.
+2. **Install missing tools automatically** (Windows via `winget` / Chocolatey; macOS via Homebrew):
+   - **Azure CLI** (`az`) — for corp auth against CRM and M365.
+   - **GitHub Copilot CLI** — the official `@github/copilot` npm package, which provides the `copilot` binary used by `mcaps`. A `gh copilot` extension is configured as a fallback if the primary install cannot run.
+   - **Obsidian Desktop** (optional, for the vault UI).
+3. **Prompt for `az login`** with guidance to sign in as `alias@microsoft.com`.
+4. **Run `npm install`** for the repo dependencies.
+5. **Walk through GitHub Packages auth and `.env` setup**.
+6. **Register the global `mcaps` command** and ensure the launcher works in a fresh PowerShell window (uses a `.cmd` shim on Windows so restricted execution policies don't block it).
 
 > [!TIP]
 > Already have Node.js? Make sure it's v18+. Run `./scripts/bootstrap.sh --check` (macOS/Linux) or `./scripts/bootstrap.ps1 -Check` (Windows) for a dry prerequisite check.
