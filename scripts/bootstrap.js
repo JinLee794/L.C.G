@@ -65,6 +65,72 @@ function run(cmd, cmdArgs, opts = {}) {
   return r.status ?? 1;
 }
 
+function runQuiet(cmd, cmdArgs, opts = {}) {
+  const r = spawnSync(cmd, cmdArgs, { stdio: "ignore", cwd: ROOT, ...opts });
+  return r.status ?? 1;
+}
+
+function installWithWingetOrChoco(wingetId, chocoPkg) {
+  if (!isWin) return false;
+
+  if (has("winget")) {
+    const rc = run("winget", [
+      "install",
+      "--id",
+      wingetId,
+      "-e",
+      "--silent",
+      "--accept-package-agreements",
+      "--accept-source-agreements",
+    ]);
+    if (rc === 0) return true;
+  }
+
+  if (has("choco")) {
+    const rc = run("choco", ["install", chocoPkg, "-y"]);
+    if (rc === 0) return true;
+  }
+
+  return false;
+}
+
+function hasGhCopilot() {
+  if (!has("gh")) return false;
+  return runQuiet("gh", ["copilot", "--help"]) === 0;
+}
+
+function installAzureCli() {
+  if (has("az")) return true;
+  if (!isWin) return false;
+
+  info("Azure CLI missing - installing...");
+  const installed = installWithWingetOrChoco("Microsoft.AzureCLI", "azure-cli");
+  return installed && has("az");
+}
+
+function installCopilotCli() {
+  if (has("copilot") || hasGhCopilot()) return true;
+
+  if (isWin) {
+    info("Copilot CLI missing - installing...");
+
+    // Primary path: npm package that provides the `copilot` command.
+    const npmRc = run("cmd.exe", ["/d", "/s", "/c", "npm install -g @githubnext/github-copilot-cli"]);
+    if (npmRc === 0 && has("copilot")) return true;
+
+    // Fallback path: gh + gh-copilot extension.
+    if (!has("gh")) {
+      installWithWingetOrChoco("GitHub.cli", "gh");
+    }
+    if (has("gh")) {
+      run("gh", ["extension", "install", "github/gh-copilot"]);
+      if (hasGhCopilot()) return true;
+    }
+  }
+
+  return has("copilot") || hasGhCopilot();
+}
+
 function npmVersion() {
   if (isWin) {
     const r = spawnSync("cmd.exe", ["/d", "/s", "/c", "npm --version"], { encoding: "utf-8" });
@@ -76,9 +142,9 @@ function npmVersion() {
 
 function npmInstall() {
   if (isWin) {
-    return run("cmd.exe", ["/d", "/s", "/c", "npm install"]);
+    return run("cmd.exe", ["/d", "/s", "/c", "npm install --no-audit --no-fund"]);
   }
-  return run("npm", ["install"]);
+  return run("npm", ["install", "--no-audit", "--no-fund"]);
 }
 
 // ── Step 1: prereq checks ───────────────────────────────────────────
@@ -111,23 +177,39 @@ if (has("git")) {
   warn("git not found — required for repo operations");
 }
 
-// Azure CLI (optional)
-if (has("az")) {
+// Azure CLI
+let hasAz = has("az");
+if (!hasAz && !CHECK_ONLY) {
+  hasAz = installAzureCli();
+}
+if (hasAz) {
   const azRaw = version("az", "version");
   // `az version` outputs JSON; extract the azure-cli value.
   const azVer = azRaw?.match(/"azure-cli":\s*"([^"]+)"/)?.[1] || azRaw?.replace(/[{}\s]/g, "") || "Azure CLI";
   ok(`Azure CLI ${azVer}`);
 } else {
-  warn("Azure CLI (`az`) not found — required for MSX-CRM + WorkIQ tools at runtime");
-  info("Install: https://learn.microsoft.com/cli/azure/install-azure-cli");
+  if (CHECK_ONLY) {
+    warn("Azure CLI (`az`) not found");
+  } else {
+    fail("Azure CLI installation failed");
+    allGood = false;
+  }
 }
 
-// GitHub Copilot CLI (optional at install-time)
-if (has("copilot")) {
-  ok("GitHub Copilot CLI on PATH");
+// GitHub Copilot CLI
+let hasCopilot = has("copilot") || hasGhCopilot();
+if (!hasCopilot && !CHECK_ONLY) {
+  hasCopilot = installCopilotCli();
+}
+if (hasCopilot) {
+  ok("GitHub Copilot CLI available");
 } else {
-  warn("`copilot` not on PATH — task runners will fall back to the bundled VS Code binary");
-  info("Install: https://docs.github.com/en/copilot/github-copilot-in-the-cli");
+  if (CHECK_ONLY) {
+    warn("GitHub Copilot CLI not found");
+  } else {
+    fail("GitHub Copilot CLI installation failed");
+    allGood = false;
+  }
 }
 
 // pwsh (optional, only needed for setup-outlook-rules)
