@@ -472,6 +472,11 @@ function createMcapsShims(npmPrefix) {
 function ensurePowerShellProfileMcaps() {
   if (!isWindows) return false;
 
+  const policy = (tryRun("powershell -NoProfile -Command \"Get-ExecutionPolicy\"") || "").trim().toLowerCase();
+  if (policy === "restricted" || policy === "allsigned") {
+    return false;
+  }
+
   const mcapsJs = join(ROOT, "bin", "mcaps.js");
   const escapedPath = mcapsJs.replace(/'/g, "''");
   const cmd = [
