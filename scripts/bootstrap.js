@@ -99,6 +99,51 @@ function hasGhCopilot() {
   return runQuiet("gh", ["copilot", "--help"]) === 0;
 }
 
+function hasRunnableCopilot() {
+  if (!isWin) {
+    return has("copilot") && runQuiet("copilot", ["--version"]) === 0;
+  }
+
+  const where = spawnSync("where", ["copilot"], { encoding: "utf-8" });
+  if (where.status !== 0) return false;
+
+  const candidates = (where.stdout || "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((p) => /\.(cmd|exe)$/i.test(p));
+
+  if (candidates.length === 0) return false;
+  return runQuiet(candidates[0], ["--version"]) === 0;
+}
+
+function ensurePathHasNpmPrefix() {
+  if (!isWin) return;
+  const p = spawnSync("cmd.exe", ["/d", "/s", "/c", "npm config get prefix"], { encoding: "utf-8" });
+  if (p.status !== 0) return;
+
+  const prefix = (p.stdout || "").trim();
+  if (!prefix) return;
+
+  const parts = (process.env.PATH || "").split(";").map((x) => x.trim().toLowerCase());
+  if (!parts.includes(prefix.toLowerCase())) {
+    process.env.PATH = process.env.PATH ? `${process.env.PATH};${prefix}` : prefix;
+  }
+}
+
+function normalizeCopilotShim() {
+  if (!isWin) return;
+  const p = spawnSync("cmd.exe", ["/d", "/s", "/c", "npm config get prefix"], { encoding: "utf-8" });
+  if (p.status !== 0) return;
+  const prefix = (p.stdout || "").trim();
+  if (!prefix) return;
+
+  const psShim = join(prefix, "copilot.ps1");
+  if (existsSync(psShim)) {
+    runQuiet("cmd.exe", ["/d", "/s", "/c", `del /f /q "${psShim}"`]);
+  }
+}
+
 function installAzureCli() {
   if (has("az")) return true;
   if (!isWin) return false;
@@ -109,26 +154,31 @@ function installAzureCli() {
 }
 
 function installCopilotCli() {
-  if (has("copilot") || hasGhCopilot()) return true;
+  if (hasRunnableCopilot() || hasGhCopilot()) return true;
 
   if (isWin) {
     info("Copilot CLI missing - installing...");
 
     // Primary path: npm package that provides the `copilot` command.
     const npmRc = run("cmd.exe", ["/d", "/s", "/c", "npm install -g @githubnext/github-copilot-cli"]);
-    if (npmRc === 0 && has("copilot")) return true;
+    if (npmRc === 0) {
+      ensurePathHasNpmPrefix();
+      normalizeCopilotShim();
+      if (hasRunnableCopilot()) return true;
+    }
 
     // Fallback path: gh + gh-copilot extension.
     if (!has("gh")) {
       installWithWingetOrChoco("GitHub.cli", "gh");
     }
     if (has("gh")) {
+      runQuiet("gh", ["extension", "remove", "github/gh-copilot"]);
       run("gh", ["extension", "install", "github/gh-copilot"]);
       if (hasGhCopilot()) return true;
     }
   }
 
-  return has("copilot") || hasGhCopilot();
+  return hasRunnableCopilot() || hasGhCopilot();
 }
 
 function npmVersion() {
@@ -197,7 +247,7 @@ if (hasAz) {
 }
 
 // GitHub Copilot CLI
-let hasCopilot = has("copilot") || hasGhCopilot();
+let hasCopilot = hasRunnableCopilot() || hasGhCopilot();
 if (!hasCopilot && !CHECK_ONLY) {
   hasCopilot = installCopilotCli();
 }
