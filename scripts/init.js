@@ -64,6 +64,19 @@ function run(cmd, cwd) {
   });
 }
 
+function runBestEffort(cmd, cwd = ROOT) {
+  try {
+    execSync(cmd, {
+      cwd,
+      stdio: "inherit",
+      shell: isWindows ? true : "/bin/sh",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function tryRun(cmd) {
   try {
     return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -90,8 +103,53 @@ function fail(msg) {
   console.log(`  ✖ ${msg}`);
 }
 
+function commandExists(cmd) {
+  return Boolean(tryRun(isWindows ? `where ${cmd}` : `command -v ${cmd}`));
+}
+
+function ensureOptionalCli(name, verifyCmd, installers) {
+  if (tryRun(verifyCmd)) return true;
+
+  info(`${name} not detected. Attempting automatic install...`);
+
+  if (isWindows) {
+    if (installers.wingetId && commandExists("winget")) {
+      info(`Installing ${name} via winget...`);
+      const okInstall = runBestEffort(
+        `winget install --id ${installers.wingetId} -e --accept-package-agreements --accept-source-agreements`
+      );
+      if (okInstall && tryRun(verifyCmd)) {
+        ok(`${name} installed via winget.`);
+        return true;
+      }
+    }
+
+    if (installers.chocoPackage && commandExists("choco")) {
+      info(`Installing ${name} via Chocolatey...`);
+      const okInstall = runBestEffort(`choco install ${installers.chocoPackage} -y`);
+      if (okInstall && tryRun(verifyCmd)) {
+        ok(`${name} installed via Chocolatey.`);
+        return true;
+      }
+    }
+  } else if (process.platform === "darwin" && installers.brewFormula && commandExists("brew")) {
+    info(`Installing ${name} via Homebrew...`);
+    const okInstall = runBestEffort(`brew install ${installers.brewFormula}`);
+    if (okInstall && tryRun(verifyCmd)) {
+      ok(`${name} installed via Homebrew.`);
+      return true;
+    }
+  }
+
+  warn(`Automatic install did not complete for ${name}.`);
+  if (installers.manualUrl) {
+    warn(`  Install manually: ${installers.manualUrl}`);
+  }
+  return false;
+}
+
 // ── prerequisite validation ─────────────────────────────────────────
-function checkPrereqs() {
+function checkPrereqs({ autoInstallOptional = false } = {}) {
   heading("Checking prerequisites");
   let passed = true;
 
@@ -114,7 +172,20 @@ function checkPrereqs() {
   }
 
   // Azure CLI — optional but recommended
-  const azVersion = tryRun("az version --query '\"azure-cli\"' -o tsv");
+  let azVersion = tryRun("az version --query '\"azure-cli\"' -o tsv");
+  if (!azVersion && autoInstallOptional) {
+    ensureOptionalCli(
+      "Azure CLI",
+      "az version --query '\"azure-cli\"' -o tsv",
+      {
+        wingetId: "Microsoft.AzureCLI",
+        chocoPackage: "azure-cli",
+        brewFormula: "azure-cli",
+        manualUrl: "https://learn.microsoft.com/cli/azure/install-azure-cli",
+      }
+    );
+    azVersion = tryRun("az version --query '\"azure-cli\"' -o tsv");
+  }
   if (azVersion) {
     ok(`Azure CLI ${azVersion}`);
 
@@ -130,7 +201,16 @@ function checkPrereqs() {
     warn("  Install: https://learn.microsoft.com/cli/azure/install-azure-cli");
   }
 
-  const ghVersion = tryRun("gh --version");
+  let ghVersion = tryRun("gh --version");
+  if (!ghVersion && autoInstallOptional) {
+    ensureOptionalCli("GitHub CLI", "gh --version", {
+      wingetId: "GitHub.cli",
+      chocoPackage: "gh",
+      brewFormula: "gh",
+      manualUrl: "https://github.com/cli/cli#installation",
+    });
+    ghVersion = tryRun("gh --version");
+  }
   if (ghVersion) {
     ok(`GitHub CLI ${ghVersion.split("\n")[0].replace("gh version ", "")}`);
     const ghStatus = tryRun("gh auth status");
@@ -460,7 +540,7 @@ if (checkMode) {
   const ok = checkOnly();
   process.exit(ok ? 0 : 1);
 } else {
-  const prereqsOk = checkPrereqs();
+  const prereqsOk = checkPrereqs({ autoInstallOptional: true });
   if (!prereqsOk) {
     console.log("\nFix prerequisite issues above, then re-run this script.");
     process.exit(1);
