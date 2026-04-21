@@ -42,6 +42,12 @@ if (-not $dirWasExplicit) {
 }
 
 $Dir = [System.IO.Path]::GetFullPath($Dir)
+$dirExists = Test-Path $Dir
+$dirIsEmpty = $false
+
+if ($dirExists) {
+  $dirIsEmpty = -not (Get-ChildItem -Path $Dir -Force | Select-Object -First 1)
+}
 
 # Block installation into cloud-synced directories (credentials would sync to the cloud).
 $dirLower = $Dir.ToLower()
@@ -59,8 +65,8 @@ if ($dirLower -match 'onedrive|dropbox|google drive|icloud') {
   exit 1
 }
 
-if ((Test-Path $Dir) -and -not $Force) {
-  Write-Error "Destination already exists: $Dir`nRe-run with -Force to replace it, or pass -Dir to choose another path."
+if ($dirExists -and -not $Force -and -not $dirIsEmpty) {
+  Write-Error "Destination already exists and is not empty: $Dir`nRe-run with -Force to replace it, or pass -Dir to choose another path."
 }
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
@@ -86,11 +92,17 @@ try {
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
   }
 
-  if (Test-Path $Dir) {
-    Remove-Item -Path $Dir -Recurse -Force
+  if ($dirExists) {
+    if ($Force -and -not $dirIsEmpty) {
+      Remove-Item -Path $Dir -Recurse -Force
+      Move-Item -Path $expandedDir -Destination $Dir
+    } else {
+      # Existing empty directory: move extracted repo contents into it.
+      Get-ChildItem -Path $expandedDir -Force | Move-Item -Destination $Dir
+    }
+  } else {
+    Move-Item -Path $expandedDir -Destination $Dir
   }
-
-  Move-Item -Path $expandedDir -Destination $Dir
 
   Write-Info "Running bootstrap from $Dir..."
   Set-Location $Dir
