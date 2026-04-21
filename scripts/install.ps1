@@ -27,7 +27,7 @@ if ($dirLower -match 'onedrive|dropbox|google drive|icloud') {
   Write-Host "  $Dir" -ForegroundColor Red
   Write-Host ''
   Write-Host 'L.C.G. stores cached credentials locally (.env, .npmrc tokens). Installing' -ForegroundColor Yellow
-  Write-Host 'here would sync those secrets to the cloud — which will get you an email' -ForegroundColor Yellow
+  Write-Host 'here would sync those secrets to the cloud - which will get you an email' -ForegroundColor Yellow
   Write-Host 'from CISO you don''t want.' -ForegroundColor Yellow
   Write-Host ''
   Write-Host 'Choose a non-synced directory instead:' -ForegroundColor Cyan
