@@ -441,6 +441,18 @@ function hasMcapsShim(npmPrefix) {
   return candidates.some((p) => existsSync(p));
 }
 
+function normalizeMcapsShims(npmPrefix) {
+  if (!isWindows || !npmPrefix) return;
+  const psShim = join(npmPrefix, "mcaps.ps1");
+  if (existsSync(psShim)) {
+    try {
+      execSync(`del /f /q "${psShim}"`, { stdio: "pipe", shell: true });
+    } catch {
+      // Best effort only.
+    }
+  }
+}
+
 function createMcapsShims(npmPrefix) {
   if (!isWindows || !npmPrefix) return false;
 
@@ -451,17 +463,13 @@ function createMcapsShims(npmPrefix) {
 
     const mcapsJs = join(ROOT, "bin", "mcaps.js");
     const escapedCmdPath = mcapsJs.replace(/"/g, "\\\"");
-    const escapedPsPath = mcapsJs.replace(/'/g, "''");
 
     const cmdShim = join(npmPrefix, "mcaps.cmd");
-    const psShim = join(npmPrefix, "mcaps.ps1");
-
     writeFileSync(cmdShim, `@echo off\r\nnode "${escapedCmdPath}" %*\r\n`, "utf-8");
-    writeFileSync(
-      psShim,
-      `param([Parameter(ValueFromRemainingArguments=$true)][string[]]$args)\nnode '${escapedPsPath}' @args\n`,
-      "utf-8",
-    );
+
+    // Do not create a .ps1 shim. On corp-managed machines with Restricted
+    // execution policy, PowerShell prefers .ps1 and then blocks execution.
+    normalizeMcapsShims(npmPrefix);
 
     return true;
   } catch {
@@ -566,6 +574,8 @@ function registerAlias() {
   if (isWindows) {
     const npmPrefix = tryRun("npm config get prefix");
     if (npmPrefix) {
+      normalizeMcapsShims(npmPrefix);
+
       // Ensure shim launchers exist even if npm link succeeds but does not
       // materialize command shims in this environment.
       createMcapsShims(npmPrefix);
