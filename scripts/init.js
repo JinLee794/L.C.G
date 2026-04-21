@@ -354,6 +354,44 @@ function registerAlias() {
     return true;
   }
 
+  // On Windows, npm link often succeeds but current PATH does not yet include
+  // npm's global bin directory in this process/session.
+  if (isWindows) {
+    const npmPrefix = tryRun("npm config get prefix");
+    if (npmPrefix) {
+      const sep = process.env.PATH?.includes(";") ? ";" : ":";
+      const currentPath = process.env.PATH || "";
+      const hasPrefixInPath = currentPath
+        .split(sep)
+        .map((p) => p.trim().toLowerCase())
+        .includes(npmPrefix.trim().toLowerCase());
+
+      if (!hasPrefixInPath) {
+        process.env.PATH = currentPath ? `${currentPath};${npmPrefix}` : npmPrefix;
+      }
+
+      const foundAfterPathRefresh = tryRun(whichCmd);
+      if (foundAfterPathRefresh) {
+        ok("'mcaps' is now available globally — PATH was refreshed for this session.");
+
+        // Best effort: persist PATH update for future terminals.
+        if (!hasPrefixInPath) {
+          try {
+            run(
+              `powershell -NoProfile -Command "if (-not (($env:Path -split ';') -contains '${npmPrefix}')) { [Environment]::SetEnvironmentVariable('PATH', [Environment]::GetEnvironmentVariable('PATH','User') + ';${npmPrefix}', 'User') }"`,
+              ROOT,
+            );
+            info("Persisted npm global bin path to User PATH.");
+          } catch {
+            // Non-fatal; session is already fixed.
+          }
+        }
+
+        return true;
+      }
+    }
+  }
+
   // npm link appeared to succeed but the command isn't callable
   warn("npm link succeeded, but 'mcaps' was not found in your PATH.");
 
