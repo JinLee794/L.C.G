@@ -152,6 +152,7 @@ function findObsidianDesktop() {
   if (isWindows) {
     const candidates = [
       join(process.env.LOCALAPPDATA || "", "Obsidian", "Obsidian.exe"),
+      join(process.env.LOCALAPPDATA || "", "Programs", "Obsidian", "Obsidian.exe"),
       "C:\\Program Files\\Obsidian\\Obsidian.exe",
       "C:\\Program Files (x86)\\Obsidian\\Obsidian.exe",
     ].filter(Boolean);
@@ -168,6 +169,12 @@ function findObsidianDesktop() {
   }
 
   return commandExists("obsidian") ? "obsidian" : null;
+}
+
+function isObsidianInstalledByWinget() {
+  if (!isWindows || !commandExists("winget")) return false;
+  const out = tryRun("winget list --id Obsidian.Obsidian -e");
+  return Boolean(out && out.toLowerCase().includes("obsidian"));
 }
 
 function ensureObsidianDesktop({ autoInstall = false } = {}) {
@@ -198,6 +205,12 @@ function ensureObsidianDesktop({ autoInstall = false } = {}) {
   obsidianPath = findObsidianDesktop();
   if (obsidianPath) {
     ok(`Obsidian Desktop installed (${obsidianPath})`);
+    return true;
+  }
+
+  // winget may return a non-install outcome when app is already present.
+  if (isObsidianInstalledByWinget()) {
+    ok("Obsidian Desktop is already installed.");
     return true;
   }
 
