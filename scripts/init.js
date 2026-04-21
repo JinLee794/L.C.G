@@ -431,11 +431,34 @@ function addPathToCurrentProcess(pathEntry) {
   }
 }
 
+function getWindowsCommandCandidates(command) {
+  if (!isWindows || !command) return [];
+
+  const out = tryRun(`where ${command}`);
+  if (!out) return [];
+
+  return out
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function hasNonPs1WindowsCommand(command) {
+  const candidates = getWindowsCommandCandidates(command);
+  if (candidates.length === 0) return false;
+  return candidates.some((p) => /\.(cmd|exe|bat)$/i.test(p) || /\\[^\\.]+$/i.test(p));
+}
+
+function hasReachableMcapsCommand() {
+  if (!isWindows) return Boolean(tryRun("which mcaps"));
+  return hasNonPs1WindowsCommand("mcaps");
+}
+
 function hasMcapsShim(npmPrefix) {
   if (!npmPrefix) return false;
   const candidates = [
     join(npmPrefix, "mcaps.cmd"),
-    join(npmPrefix, "mcaps.ps1"),
+    join(npmPrefix, "mcaps.bat"),
     join(npmPrefix, "mcaps"),
   ];
   return candidates.some((p) => existsSync(p));
@@ -522,8 +545,7 @@ function registerAlias() {
   }
 
   // Check if 'mcaps' is already linked and working
-  const whichCmd = isWindows ? "where mcaps" : "which mcaps";
-  const existing = tryRun(whichCmd);
+  const existing = hasReachableMcapsCommand();
 
   try {
     // --ignore-scripts prevents recursive postinstall
@@ -550,7 +572,7 @@ function registerAlias() {
       }
       ensurePowerShellProfileMcaps();
 
-      if (tryRun(whichCmd) || (npmPrefix && hasMcapsShim(npmPrefix))) {
+      if (hasReachableMcapsCommand() || (npmPrefix && hasMcapsShim(npmPrefix))) {
         ok("'mcaps' command was configured automatically.");
         info("If this terminal cannot run 'mcaps' yet, open a new PowerShell window.");
         return true;
@@ -562,8 +584,17 @@ function registerAlias() {
     return false;
   }
 
+  // npm link on Windows may leave a blocked .ps1 shim; normalize immediately.
+  if (isWindows) {
+    const npmPrefix = tryRun("npm config get prefix");
+    if (npmPrefix) {
+      normalizeMcapsShims(npmPrefix);
+      createMcapsShims(npmPrefix);
+    }
+  }
+
   // Verify the command is actually reachable after linking
-  const found = tryRun(whichCmd);
+  const found = hasReachableMcapsCommand();
 
   if (found) {
     ok("'mcaps' is now available globally — try it from any directory!");
@@ -591,7 +622,7 @@ function registerAlias() {
         info("Persisted npm global bin path to User PATH.");
       }
 
-      const foundAfterRepair = tryRun(whichCmd);
+      const foundAfterRepair = hasReachableMcapsCommand();
       if (foundAfterRepair) {
         ok("'mcaps' is now available globally — PATH was repaired automatically.");
         return true;
