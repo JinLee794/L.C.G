@@ -13,7 +13,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
@@ -441,6 +441,53 @@ function hasMcapsShim(npmPrefix) {
   return candidates.some((p) => existsSync(p));
 }
 
+function createMcapsShims(npmPrefix) {
+  if (!isWindows || !npmPrefix) return false;
+
+  try {
+    if (!existsSync(npmPrefix)) {
+      mkdirSync(npmPrefix, { recursive: true });
+    }
+
+    const mcapsJs = join(ROOT, "bin", "mcaps.js");
+    const escapedCmdPath = mcapsJs.replace(/"/g, "\\\"");
+    const escapedPsPath = mcapsJs.replace(/'/g, "''");
+
+    const cmdShim = join(npmPrefix, "mcaps.cmd");
+    const psShim = join(npmPrefix, "mcaps.ps1");
+
+    writeFileSync(cmdShim, `@echo off\r\nnode "${escapedCmdPath}" %*\r\n`, "utf-8");
+    writeFileSync(
+      psShim,
+      `param([Parameter(ValueFromRemainingArguments=$true)][string[]]$args)\nnode '${escapedPsPath}' @args\n`,
+      "utf-8",
+    );
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensurePowerShellProfileMcaps() {
+  if (!isWindows) return false;
+
+  const mcapsJs = join(ROOT, "bin", "mcaps.js");
+  const escapedPath = mcapsJs.replace(/'/g, "''");
+  const cmd = [
+    "$profilePath=$PROFILE.CurrentUserCurrentHost",
+    "$dir=Split-Path -Parent $profilePath",
+    "if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }",
+    "if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Path $profilePath -Force | Out-Null }",
+    `$fn=\"function mcaps { node '${escapedPath}' @args }\"`,
+    "$raw=Get-Content -Path $profilePath -Raw",
+    "if (-not $raw) { $raw='' }",
+    "if ($raw -notmatch 'function\\s+mcaps\\s*\\{') { Add-Content -Path $profilePath -Value \"`r`n$fn`r`n\" }",
+  ].join("; ");
+
+  return runBestEffort(`powershell -NoProfile -ExecutionPolicy Bypass -Command \"${cmd}\"`, ROOT);
+}
+
 function registerAlias() {
   console.log();
   console.log("  \x1b[1m\x1b[36m╔══════════════════════════════════════════════════════════╗\x1b[0m");
@@ -480,6 +527,23 @@ function registerAlias() {
       ok("'mcaps' is already registered globally — no changes needed.");
       return true;
     }
+
+    if (isWindows) {
+      const npmPrefix = tryRun("npm config get prefix");
+      if (npmPrefix) {
+        addPathToCurrentProcess(npmPrefix);
+        ensureUserPathContains(npmPrefix);
+        createMcapsShims(npmPrefix);
+      }
+      ensurePowerShellProfileMcaps();
+
+      if (tryRun(whichCmd) || (npmPrefix && hasMcapsShim(npmPrefix))) {
+        ok("'mcaps' command was configured automatically.");
+        info("If this terminal cannot run 'mcaps' yet, open a new PowerShell window.");
+        return true;
+      }
+    }
+
     warn("Could not register global alias automatically.");
     printAliasFallback();
     return false;
@@ -519,6 +583,13 @@ function registerAlias() {
       if (hasMcapsShim(npmPrefix)) {
         ok("'mcaps' shim was installed and PATH was configured automatically.");
         info("Open a new terminal to use 'mcaps' globally.");
+        return true;
+      }
+
+      // Last automatic fallback: persist a PowerShell profile function.
+      if (ensurePowerShellProfileMcaps()) {
+        ok("PowerShell profile was updated with an 'mcaps' function automatically.");
+        info("Open a new PowerShell window and run 'mcaps'.");
         return true;
       }
     }
