@@ -54,6 +54,71 @@ function has(cmd) {
   return r.status === 0;
 }
 
+// After `winget install` succeeds, the new tool's install directory is added to
+// the Machine or User PATH in the registry, but the current Node process still
+// has the stale PATH it inherited. Re-read both registry hives and merge into
+// process.env.PATH so subsequent `has()` / `where` checks can see the new tools
+// without requiring a shell restart.
+function refreshWindowsPath() {
+  if (!isWin) return;
+
+  const readRegPath = (hive, keyPath) => {
+    const r = spawnSync(
+      "reg.exe",
+      ["query", `${hive}\\${keyPath}`, "/v", "Path"],
+      { encoding: "utf-8" }
+    );
+    if (r.status !== 0) return "";
+    // Output format: "    Path    REG_EXPAND_SZ    C:\...;C:\..."
+    const match = (r.stdout || "").match(/Path\s+REG_(?:EXPAND_)?SZ\s+(.+)/i);
+    return match ? match[1].trim() : "";
+  };
+
+  const machinePath = readRegPath(
+    "HKLM",
+    "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"
+  );
+  const userPath = readRegPath("HKCU", "Environment");
+
+  const current = process.env.PATH || "";
+  const merged = [current, machinePath, userPath]
+    .filter(Boolean)
+    .join(";")
+    .split(";")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  // Dedupe case-insensitively while preserving order.
+  const seen = new Set();
+  const deduped = [];
+  for (const p of merged) {
+    const key = p.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(p);
+    }
+  }
+  process.env.PATH = deduped.join(";");
+}
+
+// When a tool is just installed by winget but `where` can't see it (stale PATH,
+// shim not yet wired), fall back to well-known install directories.
+function findKnownWindowsBinary(relativePaths) {
+  if (!isWin) return null;
+  const roots = [
+    process.env["ProgramFiles"],
+    process.env["ProgramFiles(x86)"],
+    process.env["LocalAppData"],
+  ].filter(Boolean);
+  for (const root of roots) {
+    for (const rel of relativePaths) {
+      const full = join(root, rel);
+      if (existsSync(full)) return full;
+    }
+  }
+  return null;
+}
+
 function version(cmd, flag = "--version") {
   const r = spawnSync(cmd, [flag], { encoding: "utf-8" });
   if (r.status !== 0) return null;
@@ -83,12 +148,18 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
       "--accept-package-agreements",
       "--accept-source-agreements",
     ]);
-    if (rc === 0) return true;
+    if (rc === 0) {
+      refreshWindowsPath();
+      return true;
+    }
   }
 
   if (has("choco")) {
     const rc = run("choco", ["install", chocoPkg, "-y"]);
-    if (rc === 0) return true;
+    if (rc === 0) {
+      refreshWindowsPath();
+      return true;
+    }
   }
 
   return false;
@@ -105,13 +176,29 @@ function hasRunnableCopilot() {
   }
 
   const where = spawnSync("where", ["copilot"], { encoding: "utf-8" });
-  if (where.status !== 0) return false;
+  const candidates = where.status === 0
+    ? (where.stdout || "")
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((p) => /\.(cmd|exe)$/i.test(p))
+    : [];
 
-  const candidates = (where.stdout || "")
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((p) => /\.(cmd|exe)$/i.test(p));
+  // Fallback: probe the npm global prefix directly. `where` may miss it when
+  // PATH was updated mid-session and hasn't been picked up by the child
+  // process's resolver, or when the shim is a .ps1 without a .cmd sibling.
+  if (candidates.length === 0) {
+    const p = spawnSync("cmd.exe", ["/d", "/s", "/c", "npm config get prefix"], { encoding: "utf-8" });
+    if (p.status === 0) {
+      const prefix = (p.stdout || "").trim();
+      if (prefix) {
+        for (const name of ["copilot.cmd", "copilot.exe"]) {
+          const full = join(prefix, name);
+          if (existsSync(full)) candidates.push(full);
+        }
+      }
+    }
+  }
 
   if (candidates.length === 0) return false;
   return runQuiet(candidates[0], ["--version"]) === 0;
@@ -150,7 +237,22 @@ function installAzureCli() {
 
   info("Azure CLI missing - installing...");
   const installed = installWithWingetOrChoco("Microsoft.AzureCLI", "azure-cli");
-  return installed && has("az");
+  if (!installed) return false;
+
+  // winget sometimes returns before the new PATH entry is visible to the
+  // current process, even after refreshWindowsPath(). Fall back to the
+  // canonical install path if `where az` still can't see it.
+  if (has("az")) return true;
+
+  const azBin = findKnownWindowsBinary([
+    "Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
+  ]);
+  if (azBin) {
+    const dir = dirname(azBin);
+    process.env.PATH = `${process.env.PATH || ""};${dir}`;
+    return has("az");
+  }
+  return false;
 }
 
 function installCopilotCli() {
