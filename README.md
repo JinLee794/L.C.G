@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="image/README/avatar.png" alt="L.C.G. — Let Copilot Grind" width="200">
+  <img src="image/README/avatar.png" alt="L.C.G. — Let Copilot Go" width="200">
 </p>
 
 # L.C.G.
 
-### Let Copilot Grind
+### Let Copilot Go!
 
-*Stop doing the grind yourself. Let Copilot do it.*
+*Stop doing the low value cognitive work yourself. Let Copilot do it.*
 
 <br/>
 
@@ -223,7 +223,7 @@ You already know the pain:
 - **Institutional memory** — trapped in your head, not in a system
 - **Follow-ups everywhere** — scattered across email, CRM, Teams, and sticky notes
 
-No single tool today reads across your M365 + CRM stack, remembers *your* priorities, and still lets you own every final call. So you grind. Every. Single. Day.
+No single tool today reads across your M365 + CRM stack, remembers *your* priorities, and still lets you own every final call. So you Go. Every. Single. Day.
 
 L.C.G. turns GitHub Copilot into the tireless junior staffer you always wanted — one that **pre-reads, pre-researches, and pre-drafts everything** so you can focus on judgment, relationships, and the work that actually needs a human.
 
@@ -330,7 +330,7 @@ The **brain** does all the thinking and never touches your inbox or Teams direct
 
 ## You Stay in Control
 
-Copilot grinds, but **nothing ships without you**.
+Copilot Go's, but **nothing ships without you**.
 
 | What L.C.G. does | What it won't do |
 | --- | --- |
@@ -471,6 +471,6 @@ az login
 
 <div align="center">
 
-*L.C.G. — Let Copilot Grind — Private repository — Internal use only*
+*L.C.G. — Let Copilot Go — Private repository — Internal use only*
 
 </div>
