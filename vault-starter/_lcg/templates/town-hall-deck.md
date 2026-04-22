@@ -1,3 +1,8 @@
+---
+icon: LiPresentation
+sticker: lucide//presentation
+---
+
 # Town Hall Deck Template
 
 ## Slide 1: Headline

@@ -1,3 +1,8 @@
+---
+icon: LiClipboardList
+sticker: lucide//clipboard-list
+---
+
 # Meeting Brief Template
 
 ## Meeting

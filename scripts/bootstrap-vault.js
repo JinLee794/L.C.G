@@ -19,6 +19,8 @@ import {
   mkdirSync,
   copyFileSync,
   readdirSync,
+  readFileSync,
+  writeFileSync,
   statSync,
 } from "node:fs";
 import { resolve, join, dirname, extname } from "node:path";
@@ -87,6 +89,26 @@ function copyStarterTree(subdir) {
 }
 
 copyStarterTree(CONFIG_SUBDIR);
+
+// ── Set lcg_repo in preferences.md frontmatter ─────────────────────
+// The automation dashboard reads this to invoke repo scripts directly.
+const prefsPath = join(vaultDir, CONFIG_SUBDIR, "preferences.md");
+if (existsSync(prefsPath)) {
+  const prefsContent = readFileSync(prefsPath, "utf-8");
+  const repoPathValue = ROOT.replace(/\\/g, "/");
+  if (prefsContent.includes('lcg_repo: ""') || prefsContent.includes("lcg_repo: ''")) {
+    const updated = prefsContent.replace(/lcg_repo:\s*["']{2}/, `lcg_repo: "${repoPathValue}"`);
+    writeFileSync(prefsPath, updated, "utf-8");
+    console.log(`[vault:init] set lcg_repo → ${repoPathValue}`);
+  } else if (!prefsContent.includes("lcg_repo:")) {
+    // Frontmatter exists but lcg_repo property is missing — inject it
+    const updated = prefsContent.replace(/^---\n/, `---\nlcg_repo: "${repoPathValue}"\n`);
+    writeFileSync(prefsPath, updated, "utf-8");
+    console.log(`[vault:init] added lcg_repo → ${repoPathValue}`);
+  } else {
+    console.log(`[vault:init] lcg_repo already set in preferences.md`);
+  }
+}
 
 // Integrity check — only .md and .html files belong in the config subdir
 let unauthorized = 0;

@@ -184,7 +184,7 @@ When the user says "html report", "dashboard", "rich report", or "exec report":
    - Adds `NextStep` to each account row and `_aiInsight.modernizationOutlook` to the JSON.
    - Use `--dry-run` to preview without API calls.
 5. Run: `node scripts/helpers/generate-sql600-report.js /tmp/sql600-data-<YYYY-MM-DD>.json`
-6. Output lands in `.copilot/docs/sql600-hls-readout-<YYYY-MM-DD>.html`
+6. Output lands in the resolved artifact directory per `shared-patterns.instructions.md` § Artifact Output Directory (default filename: `sql600-hls-readout-<YYYY-MM-DD>.html`)
 7. Open in browser for preview; printable to PDF via Cmd+P
 
 > **AIO data in JSON:** If Step 2.5 ran, the JSON file should include `aioAccountMoM`, `aioServiceBreakdown`, and `aioBudgetAttainment` arrays. The HTML generator renders these as an "Azure Consumption Deep Dive" section with a MoM heatmap, service pillar breakdown, and budget attainment overlay. If the AIO arrays are missing or empty, the section is omitted gracefully.

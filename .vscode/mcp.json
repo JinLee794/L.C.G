@@ -18,6 +18,7 @@
 			}
 		},
 		"showrunner": {
+			"type": "stdio",
 			"command": "npx",
 			"args": ["-y", "@jinlee794/showrunner-mcp@latest"],
 			"env": {

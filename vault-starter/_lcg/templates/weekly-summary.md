@@ -1,3 +1,8 @@
+---
+icon: LiNewspaper
+sticker: lucide//newspaper
+---
+
 # Weekly Summary Template
 
 ## Outcomes This Week

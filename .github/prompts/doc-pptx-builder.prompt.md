@@ -37,7 +37,7 @@ Build a presentation package for:
   - Call `oil:get_note_metadata` for that path.
   - If the note exists: use `oil:atomic_replace` with `mtime_ms` as `expected_mtime`.
   - If the note does not exist: use `oil:create_note`.
-- Write PPTX to `.copilot/docs/{{due_date}}-{{purpose_slug}}.pptx` via `create_file` (binary artifacts stay in the workspace).
+- Write PPTX using the three-tier artifact output resolution in `shared-patterns.instructions.md` § Artifact Output Directory. Filename: `{{due_date}}-{{purpose_slug}}.pptx`.
 
 5. If PPTX generation is blocked:
 

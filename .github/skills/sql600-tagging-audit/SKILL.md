@@ -185,7 +185,7 @@ If normalized inbox data is available, correlate wins with potential winwire evi
      - `oil:get_note_metadata` for `Daily/SQL600-HLS/sql600-tagging-audit-<YYYY-MM-DD>.md`
      - If exists → `oil:atomic_replace` with `mtime_ms`
      - If not → `oil:create_note`
-   - **If OIL MCP server is NOT available:** Write to `.copilot/docs/sql600-tagging-audit-<YYYY-MM-DD>.md` via `create_file`. This keeps the report accessible in the workspace for later vault ingestion.
+   - **If OIL MCP server is NOT available:** Write to `.copilot/docs/sql600-tagging-audit-<YYYY-MM-DD>.md` via `create_file` (tier 3 fallback per `shared-patterns.instructions.md` § Artifact Output Directory).
 
 ---
 

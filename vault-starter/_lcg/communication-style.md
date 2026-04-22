@@ -1,3 +1,8 @@
+---
+icon: LiMessageSquare
+sticker: lucide//message-square
+---
+
 # Communication Style
 
 ## Tone

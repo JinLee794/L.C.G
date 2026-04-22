@@ -1,3 +1,8 @@
+---
+icon: LiSend
+sticker: lucide//send
+---
+
 # Update Request Template
 
 ## Recipient
