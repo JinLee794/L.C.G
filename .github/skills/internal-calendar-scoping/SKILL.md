@@ -1,5 +1,5 @@
 ---
-name: _internal-calendar-scoping
+name: internal-calendar-scoping
 description: 'Calendar MCP query scoping: efficient event retrieval, meeting time discovery, room booking, and scheduling patterns for the native Calendar MCP server. Prevents unbounded event listing and unnecessary API calls. Triggers: calendar search, find meeting, list events, schedule meeting, book room, find meeting time, calendar view, today meetings, upcoming meetings, Calendar MCP, create event. DO NOT USE FOR: cross-medium day triage combining mail + calendar + Teams (use m365-search daily triage).'
 argument-hint: 'Describe what calendar data you need — events for a date range, scheduling a meeting, finding available times, or room booking'
 ---
