@@ -41,6 +41,14 @@ if (-not $dirWasExplicit) {
   }
 }
 
+# Normalize drive-relative paths like 'c:temp\demo' -> 'c:\temp\demo'.
+# Without this, PowerShell resolves 'c:temp' relative to the current directory
+# on the C: drive (e.g. C:\WINDOWS\system32\temp), which is almost never intended.
+if ($Dir -match '^[A-Za-z]:[^\\/]') {
+  $Dir = $Dir.Substring(0, 2) + '\' + $Dir.Substring(2)
+  Write-Info "Normalized install directory to '$Dir'."
+}
+
 $Dir = [System.IO.Path]::GetFullPath($Dir)
 $dirExists = Test-Path $Dir
 $dirIsEmpty = $false
