@@ -277,28 +277,35 @@ async function checkPrereqs({ autoInstallOptional = false } = {}) {
     let account = tryRun("az account show --query user.name -o tsv");
     if (account) {
       ok(`Signed in as ${account}`);
+    } else if (autoInstallOptional && process.stdin.isTTY) {
+      // Offer sign-in immediately after install — the Azure CLI context is
+      // fresh in the user's terminal, and a cached token here means the rest
+      // of setup (MCP server checks, vault sync, any az-backed probes) can
+      // proceed without prompting again. We only ask once: the tail end of
+      // this script relies on the token being cached here if the user opts in.
+      console.log();
+      info("Azure sign-in required for CRM / M365-connected workflows.");
+      console.log("    Use your Microsoft account (example: alias@microsoft.com).");
+      console.log("    During subscription selection, press Enter to accept the default.");
+      console.log();
+
+      const runAzLogin = await ask("  Run 'az login' now? [Y/n]: ");
+      if (!runAzLogin || runAzLogin.toLowerCase() === "y" || runAzLogin.toLowerCase() === "yes") {
+        const loginOk = runBestEffort("az login");
+        if (!loginOk) {
+          warn("Azure login was not completed. You can run 'az login' later.");
+        }
+        account = tryRun("az account show --query user.name -o tsv");
+        if (account) {
+          ok(`Signed in as ${account}`);
+        } else {
+          warn("Still not signed in. Run 'az login' before using lcg.");
+        }
+      } else {
+        warn("Skipping Azure sign-in. Run 'az login' before using lcg.");
+      }
     } else {
       warn("Azure CLI installed but not signed in — run: az login");
-
-      if (autoInstallOptional && process.stdin.isTTY) {
-        console.log("\n  Azure sign-in is required to continue setup.");
-        console.log("  Use your Microsoft account, for example: alias@microsoft.com");
-        console.log("  During subscription selection, you can press Enter to accept any default option.\n");
-
-        const runAzLogin = await ask("  Run 'az login' now? [Y/n]: ");
-        if (!runAzLogin || runAzLogin.toLowerCase() === "y" || runAzLogin.toLowerCase() === "yes") {
-          const loginOk = runBestEffort("az login");
-          if (!loginOk) {
-            warn("Azure login was not completed. You can run 'az login' later.");
-          }
-          account = tryRun("az account show --query user.name -o tsv");
-          if (account) {
-            ok(`Signed in as ${account}`);
-          } else {
-            warn("Azure CLI still not signed in.");
-          }
-        }
-      }
     }
   } else {
     warn("Azure CLI not found — needed for CRM authentication.");
@@ -987,22 +994,10 @@ if (checkMode) {
       console.log();
     }
 
-    // Check if already signed in; if not, offer interactive az login now.
-    let account = tryRun("az account show --query user.name -o tsv");
-    if (!account && process.stdin.isTTY && commandExists("az")) {
-      console.log("\n  Azure sign-in is required to use CRM/M365-connected workflows.");
-      console.log("  Use your Microsoft account, for example: alias@microsoft.com");
-      console.log("  During subscription selection, you can press Enter to accept any default option.\n");
-
-      const runAzLogin = await ask("  Run 'az login' now? [Y/n]: ");
-      if (!runAzLogin || runAzLogin.toLowerCase() === "y" || runAzLogin.toLowerCase() === "yes") {
-        const loginOk = runBestEffort("az login");
-        if (!loginOk) {
-          warn("Azure login was not completed. You can run 'az login' later.");
-        }
-        account = tryRun("az account show --query user.name -o tsv");
-      }
-    }
+    // Re-check sign-in status for the final message. `az login` was already
+    // offered right after the Azure CLI prereq check (see checkPrereqs with
+    // autoInstallOptional: true) — don't prompt a second time here.
+    const account = tryRun("az account show --query user.name -o tsv");
 
     if (account) {
       console.log(`
