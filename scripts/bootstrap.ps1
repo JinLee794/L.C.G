@@ -59,23 +59,30 @@ function Invoke-WingetInstall {
   $busyCodes = @(1618, -1978335006, -1978334974)
   for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     Wait-MsiIdle | Out-Null
-    & winget install --id $Id --silent --accept-package-agreements --accept-source-agreements
-    $code = $LASTEXITCODE
+    & winget install --id $Id --silent --accept-package-agreements --accept-source-agreements | Out-Host
+    # Coerce $LASTEXITCODE to int; winget can leave it null or as a non-numeric string
+    # in some edge cases (which would otherwise look like a non-zero failure below).
+    $raw = $LASTEXITCODE
+    $code = 0
+    if ($null -ne $raw -and -not [int]::TryParse([string]$raw, [ref]$code)) { $code = -1 }
+    elseif ($null -ne $raw) { $code = [int]$raw }
     if ($code -eq 0) { return 0 }
     if ($busyCodes -notcontains $code) { return $code }
     $backoff = [math]::Min(30, 5 * $attempt)
     Say-Warn "winget reported another installer is busy (exit $code). Retrying in ${backoff}s (attempt $attempt of $MaxAttempts)..."
     Start-Sleep -Seconds $backoff
   }
-  return $LASTEXITCODE
+  return $code
 }
 
 function Install-Node {
   if (Get-Command winget -ErrorAction SilentlyContinue) {
     Say-Info "Installing Node via winget..."
     $code = Invoke-WingetInstall -Id "OpenJS.NodeJS.LTS"
+    # Don't trust the exit code alone - winget sometimes reports non-zero / null even on success.
+    # The caller verifies via Test-Node; just emit a soft warning here so the log is honest.
     if ($code -ne 0) {
-      Say-Fail "winget install OpenJS.NodeJS.LTS exited with code $code."
+      Say-Warn "winget reported exit code $code for OpenJS.NodeJS.LTS - will verify with Test-Node next."
     }
     return
   }
