@@ -732,7 +732,7 @@ const html = `<!DOCTYPE html>
     padding: 0;
   }
   .header {
-    background: linear-gradient(135deg, #1e1240 0%, #2d1f6b 40%, #6c5ce7 100%);
+    background: var(--header-gradient, linear-gradient(135deg, #1e1240 0%, #2d1f6b 40%, #6c5ce7 100%));
     padding: 40px 48px 32px;
     border-bottom: 1px solid var(--border);
     position: relative;
@@ -745,7 +745,7 @@ const html = `<!DOCTYPE html>
     right: -10%;
     width: 400px;
     height: 400px;
-    background: radial-gradient(circle, rgba(108,92,231,0.3) 0%, transparent 70%);
+    background: var(--header-glow, radial-gradient(circle, rgba(108,92,231,0.3) 0%, transparent 70%));
     pointer-events: none;
   }
   .header-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; z-index: 1; }
@@ -1303,6 +1303,84 @@ const html = `<!DOCTYPE html>
   }
   @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } }
   .easter-egg.show { display: block; }
+
+  /* Palette switcher */
+  .palette-switcher {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin: 24px auto 32px; padding: 8px 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; box-shadow: var(--card-shadow);
+    font-size: 11px; color: var(--text-muted);
+  }
+  .palette-switcher-wrap { text-align: center; }
+  .palette-switcher .ps-label { text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+  .palette-swatch {
+    width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
+    border: 2px solid rgba(255,255,255,0.15); transition: transform 0.15s, border-color 0.15s;
+    padding: 0; outline: none;
+  }
+  .palette-swatch:hover { transform: scale(1.15); }
+  .palette-swatch.active { border-color: var(--white); transform: scale(1.15); }
+  .palette-swatch.party-btn {
+    background: conic-gradient(from 0deg, #ef4444, #f97316, #facc15, #22c55e, #3b82f6, #8b5cf6, #ec4899, #ef4444) !important;
+    width: 24px; height: 24px;
+    animation: party-spin 2s linear infinite;
+  }
+  .palette-swatch.party-btn.active { box-shadow: 0 0 12px 2px #fff, 0 0 24px 4px #ec4899; animation: party-spin 0.6s linear infinite, party-pulse 0.4s ease-in-out infinite alternate; }
+  @keyframes party-spin { to { transform: rotate(360deg); } }
+  @keyframes party-pulse { from { filter: brightness(1); } to { filter: brightness(1.6); } }
+  @media print { .palette-switcher { display: none !important; } }
+
+  /* PARTY MODE */
+  @keyframes party-hue { from { filter: hue-rotate(0deg) saturate(1.4); } to { filter: hue-rotate(360deg) saturate(1.4); } }
+  @keyframes party-shake {
+    0%,100% { transform: translate(0,0) rotate(0deg); }
+    20% { transform: translate(-4px,2px) rotate(-0.6deg); }
+    40% { transform: translate(5px,-3px) rotate(0.8deg); }
+    60% { transform: translate(-3px,4px) rotate(-0.4deg); }
+    80% { transform: translate(4px,-2px) rotate(0.5deg); }
+  }
+  @keyframes party-wobble {
+    0%,100% { transform: rotate(-1deg) scale(1); }
+    50% { transform: rotate(1deg) scale(1.02); }
+  }
+  @keyframes party-strobe {
+    0%,100% { opacity: 0; }
+    45% { opacity: 0; }
+    50% { opacity: 0.55; }
+    55% { opacity: 0; }
+  }
+  @keyframes party-rainbow-text {
+    0% { color: #ef4444; } 16% { color: #f97316; } 33% { color: #facc15; }
+    50% { color: #22c55e; } 66% { color: #3b82f6; } 83% { color: #8b5cf6; } 100% { color: #ec4899; }
+  }
+  @keyframes party-confetti-fall {
+    0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(110vh) rotate(720deg); opacity: 0.9; }
+  }
+  body.party-mode { animation: party-hue 4s linear infinite; }
+  body.party-mode .header { animation: party-shake 0.4s ease-in-out infinite; }
+  body.party-mode .header h1,
+  body.party-mode .kpi-value,
+  body.party-mode .section-title { animation: party-rainbow-text 1.6s linear infinite; }
+  body.party-mode .kpi-card,
+  body.party-mode .insight-card,
+  body.party-mode .table-section { animation: party-wobble 0.6s ease-in-out infinite; }
+  body.party-mode::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9998;
+    background: #ffffff; mix-blend-mode: difference;
+    animation: party-strobe 0.45s steps(1) infinite;
+  }
+  .party-confetti {
+    position: fixed; top: -10vh; width: 10px; height: 14px; z-index: 9999;
+    pointer-events: none; will-change: transform;
+    animation: party-confetti-fall linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body.party-mode, body.party-mode * { animation-duration: 6s !important; }
+    body.party-mode::before { display: none; }
+  }
+  @media print { body.party-mode { animation: none !important; } body.party-mode::before, .party-confetti { display: none !important; } }
 </style>
 </head>
 <body>
@@ -2090,6 +2168,116 @@ ${Array.isArray(narrative.takeaways) && narrative.takeaways.length ? `
       detail.classList.toggle('open', isOpen);
     });
   });
+</script>
+
+<!-- Palette Switcher -->
+<div class="palette-switcher-wrap">
+<div class="palette-switcher" role="group" aria-label="Color palette">
+  <span class="ps-label">Theme</span>
+  <button class="palette-swatch active" data-palette="default" title="Default (purple)" style="background: linear-gradient(135deg,#0f1117 50%,#6c5ce7 50%);"></button>
+  <button class="palette-swatch" data-palette="red" title="Red" style="background: linear-gradient(135deg,#170c0c 50%,#ef4444 50%);"></button>
+  <button class="palette-swatch" data-palette="orange" title="Orange" style="background: linear-gradient(135deg,#1a120a 50%,#f97316 50%);"></button>
+  <button class="palette-swatch" data-palette="yellow" title="Yellow" style="background: linear-gradient(135deg,#1a1608 50%,#facc15 50%);"></button>
+  <button class="palette-swatch" data-palette="green" title="Green" style="background: linear-gradient(135deg,#0c1612 50%,#22c55e 50%);"></button>
+  <button class="palette-swatch" data-palette="blue" title="Blue" style="background: linear-gradient(135deg,#0a1320 50%,#3b82f6 50%);"></button>
+  <button class="palette-swatch" data-palette="indigo" title="Indigo" style="background: linear-gradient(135deg,#0d0e22 50%,#6366f1 50%);"></button>
+  <button class="palette-swatch" data-palette="violet" title="Violet" style="background: linear-gradient(135deg,#160c1f 50%,#8b5cf6 50%);"></button>
+  <button class="palette-swatch" data-palette="gold" title="Gold" style="background: linear-gradient(135deg,#1a1408 50%,#d4af37 50%);"></button>
+  <button class="palette-swatch" data-palette="pink" title="Pink" style="background: linear-gradient(135deg,#1a0e15 50%,#ec4899 50%);"></button>
+  <button class="palette-swatch" data-palette="rainbow" title="Rainbow" style="background: linear-gradient(135deg,#ef4444,#f97316,#facc15,#22c55e,#3b82f6,#8b5cf6,#ec4899);"></button>
+  <button class="palette-swatch" data-palette="light" title="Light" style="background: linear-gradient(135deg,#f5f6fa 50%,#6c5ce7 50%);"></button>
+  <button class="palette-swatch party-btn" data-palette="party" title="\u{1F389} PARTY MODE \u{1F389}" aria-label="Party mode"></button>
+</div>
+</div>
+<script>
+(function() {
+  const PALETTES = {
+    default: { '--bg':'#0f1117','--surface':'#1a1d27','--surface-2':'#242837','--border':'#2d3148','--text':'#e4e5eb','--text-muted':'#8b8fa3','--accent':'#6c5ce7','--accent-light':'#a29bfe','--green':'#00b894','--green-bg':'rgba(0,184,148,0.12)','--red':'#ff6b6b','--red-bg':'rgba(255,107,107,0.12)','--yellow':'#ffc048','--yellow-bg':'rgba(255,192,72,0.12)','--blue':'#74b9ff','--blue-bg':'rgba(116,185,255,0.12)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #1e1240 0%, #2d1f6b 40%, #6c5ce7 100%)','--header-glow':'radial-gradient(circle, rgba(108,92,231,0.3) 0%, transparent 70%)' },
+    red: { '--bg':'#170c0c','--surface':'#241414','--surface-2':'#33201f','--border':'#4a2b2b','--text':'#f3e6e6','--text-muted':'#a89090','--accent':'#ef4444','--accent-light':'#fca5a5','--green':'#84cc16','--green-bg':'rgba(132,204,22,0.14)','--red':'#dc2626','--red-bg':'rgba(220,38,38,0.14)','--yellow':'#fbbf24','--yellow-bg':'rgba(251,191,36,0.14)','--blue':'#60a5fa','--blue-bg':'rgba(96,165,250,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #2a0808 0%, #6b1818 40%, #ef4444 100%)','--header-glow':'radial-gradient(circle, rgba(239,68,68,0.35) 0%, transparent 70%)' },
+    orange: { '--bg':'#1a120a','--surface':'#241a10','--surface-2':'#33261a','--border':'#4a3826','--text':'#f3ebe0','--text-muted':'#a89684','--accent':'#f97316','--accent-light':'#fdba74','--green':'#84cc16','--green-bg':'rgba(132,204,22,0.14)','--red':'#dc2626','--red-bg':'rgba(220,38,38,0.14)','--yellow':'#facc15','--yellow-bg':'rgba(250,204,21,0.14)','--blue':'#38bdf8','--blue-bg':'rgba(56,189,248,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #2a1408 0%, #6b3818 40%, #f97316 100%)','--header-glow':'radial-gradient(circle, rgba(249,115,22,0.35) 0%, transparent 70%)' },
+    yellow: { '--bg':'#1a1608','--surface':'#241f0e','--surface-2':'#332c18','--border':'#4a4128','--text':'#f3eedb','--text-muted':'#a89e7d','--accent':'#facc15','--accent-light':'#fde68a','--green':'#22c55e','--green-bg':'rgba(34,197,94,0.14)','--red':'#ef4444','--red-bg':'rgba(239,68,68,0.14)','--yellow':'#eab308','--yellow-bg':'rgba(234,179,8,0.14)','--blue':'#38bdf8','--blue-bg':'rgba(56,189,248,0.14)','--white':'#1a1608','--header-gradient':'linear-gradient(135deg, #2a2008 0%, #6b5418 40%, #facc15 100%)','--header-glow':'radial-gradient(circle, rgba(250,204,21,0.35) 0%, transparent 70%)' },
+    green: { '--bg':'#0c1612','--surface':'#15241d','--surface-2':'#1f3329','--border':'#2a4538','--text':'#e0ebe4','--text-muted':'#7d9489','--accent':'#22c55e','--accent-light':'#86efac','--green':'#16a34a','--green-bg':'rgba(22,163,74,0.14)','--red':'#ef4444','--red-bg':'rgba(239,68,68,0.14)','--yellow':'#facc15','--yellow-bg':'rgba(250,204,21,0.14)','--blue':'#38bdf8','--blue-bg':'rgba(56,189,248,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #082014 0%, #186b3a 40%, #22c55e 100%)','--header-glow':'radial-gradient(circle, rgba(34,197,94,0.35) 0%, transparent 70%)' },
+    blue: { '--bg':'#0a1320','--surface':'#13213a','--surface-2':'#1c2d4d','--border':'#27395c','--text':'#e0e8f5','--text-muted':'#7a8aa3','--accent':'#3b82f6','--accent-light':'#93c5fd','--green':'#10b981','--green-bg':'rgba(16,185,129,0.14)','--red':'#f87171','--red-bg':'rgba(248,113,113,0.14)','--yellow':'#fbbf24','--yellow-bg':'rgba(251,191,36,0.14)','--blue':'#60a5fa','--blue-bg':'rgba(96,165,250,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #08172e 0%, #1d3f7d 40%, #3b82f6 100%)','--header-glow':'radial-gradient(circle, rgba(59,130,246,0.35) 0%, transparent 70%)' },
+    indigo: { '--bg':'#0d0e22','--surface':'#171830','--surface-2':'#222345','--border':'#33345e','--text':'#e4e5f5','--text-muted':'#8b8fb3','--accent':'#6366f1','--accent-light':'#a5b4fc','--green':'#10b981','--green-bg':'rgba(16,185,129,0.14)','--red':'#f87171','--red-bg':'rgba(248,113,113,0.14)','--yellow':'#fbbf24','--yellow-bg':'rgba(251,191,36,0.14)','--blue':'#60a5fa','--blue-bg':'rgba(96,165,250,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #0d0e2e 0%, #2a2c7d 40%, #6366f1 100%)','--header-glow':'radial-gradient(circle, rgba(99,102,241,0.35) 0%, transparent 70%)' },
+    violet: { '--bg':'#160c1f','--surface':'#22152e','--surface-2':'#311e42','--border':'#46305c','--text':'#ede4f5','--text-muted':'#a08fb3','--accent':'#8b5cf6','--accent-light':'#c4b5fd','--green':'#10b981','--green-bg':'rgba(16,185,129,0.14)','--red':'#f87171','--red-bg':'rgba(248,113,113,0.14)','--yellow':'#fbbf24','--yellow-bg':'rgba(251,191,36,0.14)','--blue':'#60a5fa','--blue-bg':'rgba(96,165,250,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #1e0d33 0%, #4a2580 40%, #8b5cf6 100%)','--header-glow':'radial-gradient(circle, rgba(139,92,246,0.35) 0%, transparent 70%)' },
+    gold: { '--bg':'#1a1408','--surface':'#241c0e','--surface-2':'#332818','--border':'#4a3a26','--text':'#f3ecd9','--text-muted':'#a89a78','--accent':'#d4af37','--accent-light':'#f1d878','--green':'#84cc16','--green-bg':'rgba(132,204,22,0.14)','--red':'#dc2626','--red-bg':'rgba(220,38,38,0.14)','--yellow':'#fbbf24','--yellow-bg':'rgba(251,191,36,0.14)','--blue':'#60a5fa','--blue-bg':'rgba(96,165,250,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #2a1f08 0%, #7a5a18 40%, #d4af37 100%)','--header-glow':'radial-gradient(circle, rgba(212,175,55,0.40) 0%, transparent 70%)' },
+    pink: { '--bg':'#1a0e15','--surface':'#261520','--surface-2':'#36202d','--border':'#4d2e3f','--text':'#f3e0ec','--text-muted':'#a8869b','--accent':'#ec4899','--accent-light':'#f9a8d4','--green':'#10b981','--green-bg':'rgba(16,185,129,0.14)','--red':'#ef4444','--red-bg':'rgba(239,68,68,0.14)','--yellow':'#fbbf24','--yellow-bg':'rgba(251,191,36,0.14)','--blue':'#60a5fa','--blue-bg':'rgba(96,165,250,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #2a0817 0%, #7d1e51 40%, #ec4899 100%)','--header-glow':'radial-gradient(circle, rgba(236,72,153,0.35) 0%, transparent 70%)' },
+    rainbow: { '--bg':'#0f0f1a','--surface':'#1a1a2e','--surface-2':'#262640','--border':'#3a3a5c','--text':'#f0e6f5','--text-muted':'#9b8fb3','--accent':'#ec4899','--accent-light':'#facc15','--green':'#22c55e','--green-bg':'rgba(34,197,94,0.14)','--red':'#ef4444','--red-bg':'rgba(239,68,68,0.14)','--yellow':'#facc15','--yellow-bg':'rgba(250,204,21,0.14)','--blue':'#3b82f6','--blue-bg':'rgba(59,130,246,0.14)','--white':'#ffffff','--header-gradient':'linear-gradient(135deg, #ef4444 0%, #f97316 18%, #facc15 36%, #22c55e 54%, #3b82f6 72%, #8b5cf6 88%, #ec4899 100%)','--header-glow':'radial-gradient(circle, rgba(255,255,255,0.25) 0%, transparent 70%)' },
+    light: { '--bg':'#f5f6fa','--surface':'#ffffff','--surface-2':'#eef0f6','--border':'#d8dce6','--text':'#1a1d27','--text-muted':'#5a6072','--accent':'#6c5ce7','--accent-light':'#5848c2','--green':'#00866a','--green-bg':'rgba(0,134,106,0.12)','--red':'#d63031','--red-bg':'rgba(214,48,49,0.10)','--yellow':'#c98a00','--yellow-bg':'rgba(201,138,0,0.12)','--blue':'#0984e3','--blue-bg':'rgba(9,132,227,0.10)','--white':'#1a1d27','--header-gradient':'linear-gradient(135deg, #e8eaf6 0%, #c5cae9 40%, #6c5ce7 100%)','--header-glow':'radial-gradient(circle, rgba(108,92,231,0.25) 0%, transparent 70%)' }
+  };
+  const STORAGE_KEY = 'sql600-palette';
+  function applyPalette(name) {
+    const p = PALETTES[name] || PALETTES.default;
+    const root = document.documentElement;
+    Object.entries(p).forEach(([k,v]) => root.style.setProperty(k, v));
+    document.querySelectorAll('.palette-swatch').forEach(b => {
+      b.classList.toggle('active', b.dataset.palette === name);
+    });
+    try { localStorage.setItem(STORAGE_KEY, name); } catch (e) {}
+  }
+  // Party mode
+  const PARTY_PALETTES = ['red','orange','yellow','green','blue','indigo','violet','pink','rainbow','gold'];
+  const CONFETTI_COLORS = ['#ef4444','#f97316','#facc15','#22c55e','#3b82f6','#8b5cf6','#ec4899','#ffffff','#d4af37'];
+  let partyState = null;
+  function startParty() {
+    if (partyState) return;
+    document.body.classList.add('party-mode');
+    document.querySelectorAll('.palette-swatch').forEach(b => {
+      b.classList.toggle('active', b.dataset.palette === 'party');
+    });
+    let i = 0;
+    const cycle = setInterval(() => {
+      const p = PARTY_PALETTES[i++ % PARTY_PALETTES.length];
+      const obj = PALETTES[p];
+      if (obj) {
+        const root = document.documentElement;
+        Object.entries(obj).forEach(([k,v]) => root.style.setProperty(k, v));
+      }
+    }, 350);
+    const confettiLayer = document.createElement('div');
+    confettiLayer.id = 'party-confetti-layer';
+    document.body.appendChild(confettiLayer);
+    const confetti = setInterval(() => {
+      for (let n = 0; n < 4; n++) {
+        const c = document.createElement('div');
+        c.className = 'party-confetti';
+        c.style.left = Math.random() * 100 + 'vw';
+        c.style.background = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+        c.style.animationDuration = (1.8 + Math.random() * 2.4) + 's';
+        c.style.transform = 'rotate(' + (Math.random()*360) + 'deg)';
+        c.style.width = (6 + Math.random()*8) + 'px';
+        c.style.height = (10 + Math.random()*10) + 'px';
+        confettiLayer.appendChild(c);
+        setTimeout(() => c.remove(), 4500);
+      }
+    }, 120);
+    partyState = { cycle, confetti, confettiLayer };
+  }
+  function stopParty() {
+    if (!partyState) return;
+    clearInterval(partyState.cycle);
+    clearInterval(partyState.confetti);
+    partyState.confettiLayer.remove();
+    document.body.classList.remove('party-mode');
+    partyState = null;
+  }
+  document.querySelectorAll('.palette-swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.palette;
+      if (name === 'party') {
+        if (partyState) { stopParty(); applyPalette('default'); }
+        else { startParty(); }
+      } else {
+        stopParty();
+        applyPalette(name);
+      }
+    });
+  });
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved && PALETTES[saved]) applyPalette(saved);
+  } catch (e) {}
+})();
 </script>
 
 </body>
