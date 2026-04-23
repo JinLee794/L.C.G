@@ -109,7 +109,23 @@ Finally, click **Authorize github** to grant the device the `read:packages` scop
 
 ![Authorize the device](image/README/install-09-gh-authorize.jpg)
 
-Return to the terminal. The installer scaffolds your local vault, links the global `lcg` command, and prints `✔ Bootstrap complete.`
+#### 5. Obsidian Desktop — install it?
+
+L.C.G. uses an [Obsidian](https://obsidian.md) vault as its local "second brain" (plain Markdown files for customer notes, meeting history, drafts, and learning log). The Obsidian Desktop app is the recommended UI for browsing it, but it's optional — everything is Markdown and any editor works.
+
+At the prompt **`Install Obsidian Desktop now? [Y/n]:`** press **Enter** to accept (default Yes) or type `n` to skip. On Windows it installs via `winget`; on macOS via Homebrew.
+
+#### 6. Vault location — where should L.C.G. store your vault?
+
+The installer will ask where your vault should live and offers three options:
+
+1. **Inside the L.C.G. folder** *(recommended, default)* — creates `.vault/` inside your install directory. Easiest to find, nothing else to configure. Press **Enter** to accept.
+2. **Create a new vault at a custom location** — type any path when prompted. The installer creates the folder and seeds it with starter templates.
+3. **Use an existing Obsidian vault** — type the full path to a vault you already have (e.g. `C:\Users\you\Documents\ObsidianVault` or `/Users/you/Documents/Obsidian/My Vault`). Starter templates are seeded without overwriting your existing notes.
+
+Whichever option you pick, the path is saved to `.env` as `OBSIDIAN_VAULT_PATH`. You can change it later — see [Switch to a different Obsidian vault](#switch-to-a-different-obsidian-vault) at the bottom of this section.
+
+Return to the terminal. The installer scaffolds your vault, links the global `lcg` command, and prints `✔ Bootstrap complete.`
 
 ---
 
@@ -155,18 +171,18 @@ Answers are saved in your vault under `_lcg/` as plain markdown. Re-run `/onboar
 <details>
 <summary><strong>What the installer actually did (click to expand)</strong></summary>
 
-The installer and bootstrap are designed to finish unattended. For the curious, here's everything that happened:
+The installer and bootstrap are designed to finish with minimal questions. For the curious, here's everything that happened:
 
 1. **Downloaded** the repo to your install directory (default: `~/L.C.G`).
 2. **Verified prerequisites** — Node.js 18+, npm, git.
 3. **Installed missing tools automatically** (Windows via `winget` / Chocolatey; macOS via Homebrew):
    - **Azure CLI** (`az`) — for corp auth against CRM and M365.
    - **GitHub Copilot CLI** — the official `@github/copilot` npm package, which provides the `copilot` binary used by `lcg`. A `gh copilot` extension is configured as a fallback.
-   - **Obsidian Desktop** — for editing your vault in a nice UI.
+   - **Obsidian Desktop** — installed only if you answered **Yes** at the prompt.
 4. **Prompted for `az login`** — sign in as `alias@microsoft.com`.
 5. **Ran `npm install`** for repo dependencies.
 6. **Walked through GitHub Packages auth** — uses your personal GitHub account (not your `_microsoft` EMU account).
-7. **Created a local vault** at `.vault/` inside the install folder and seeded it with starter templates under `_lcg/`.
+7. **Created (or pointed at) your vault** based on your choice at the vault-location prompt, and seeded it with starter templates under `_lcg/` (never overwriting existing files).
 8. **Registered the global `lcg` command** using a `.cmd` shim on Windows so it works in restricted-policy PowerShell.
 
 > [!IMPORTANT]
@@ -177,19 +193,20 @@ The installer and bootstrap are designed to finish unattended. For the curious, 
 
 </details>
 
-<details>
-<summary><strong>Use a different Obsidian vault (click to expand)</strong></summary>
+<details id="switch-to-a-different-obsidian-vault">
+<summary><strong>Switch to a different Obsidian vault (click to expand)</strong></summary>
 
-The installer creates a local vault inside your install folder (`.vault/`). If you already have an Obsidian vault elsewhere and want L.C.G. to use that instead:
+You already picked a vault location during install. If you want to change your mind — point L.C.G. at a different existing vault, or create a new one elsewhere:
 
-1. Open `.env` in your install folder.
-2. Set the path:
+**a. Create or choose a vault.** If you don't have one yet, download [Obsidian](https://obsidian.md) → **Create new vault** → pick a name and location you'll remember. Otherwise note the full path to your existing vault (e.g. `/Users/you/Documents/Obsidian/My Vault`).
+
+**b. Point `.env` at it.** Open `.env` in your install folder and update:
 
 ```dotenv
 OBSIDIAN_VAULT_PATH="/Path/To/Your/Obsidian/Vault"
 ```
 
-3. Seed it with L.C.G. starter templates (safe — never overwrites existing files):
+**c. Seed the L.C.G. structure** (safe — never overwrites existing files):
 
 ```bash
 npm run vault:init

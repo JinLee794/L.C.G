@@ -177,20 +177,33 @@ function isObsidianInstalledByWinget() {
   return Boolean(out && out.toLowerCase().includes("obsidian"));
 }
 
-function ensureObsidianDesktop({ autoInstall = false } = {}) {
+async function ensureObsidianDesktop({ autoInstall = false } = {}) {
   let obsidianPath = findObsidianDesktop();
   if (obsidianPath) {
     ok(`Obsidian Desktop detected (${obsidianPath})`);
     return true;
   }
 
-  if (!autoInstall) {
-    warn("Obsidian Desktop not found.");
-    warn("  Install: https://obsidian.md/download");
+  // Interactive mode: ask the user whether to install. Non-interactive shells
+  // fall back to the autoInstall flag so CI/scripted runs keep working.
+  let shouldInstall = autoInstall;
+  if (process.stdin.isTTY) {
+    console.log();
+    console.log("  Obsidian Desktop is the recommended UI for browsing your vault");
+    console.log("  (customer notes, meeting briefs, drafts). It is not strictly required —");
+    console.log("  everything is plain Markdown and can be viewed with any editor.");
+    const answer = await ask("  Install Obsidian Desktop now? [Y/n]: ");
+    const normalized = answer.trim().toLowerCase();
+    shouldInstall = normalized === "" || normalized === "y" || normalized === "yes";
+  }
+
+  if (!shouldInstall) {
+    info("Skipping Obsidian Desktop install.");
+    info("  You can install it later from https://obsidian.md/download");
     return false;
   }
 
-  info("Obsidian Desktop not detected. Attempting automatic install...");
+  info("Installing Obsidian Desktop...");
 
   if (isWindows && commandExists("winget")) {
     info("Installing Obsidian via winget...");
@@ -332,7 +345,7 @@ async function checkPrereqs({ autoInstallOptional = false } = {}) {
     console.log();
   }
 
-  ensureObsidianDesktop({ autoInstall: autoInstallOptional });
+  await ensureObsidianDesktop({ autoInstall: autoInstallOptional });
 
   return passed;
 }
@@ -722,17 +735,39 @@ async function configureEnv() {
   }
 
   heading("Obsidian Vault Configuration");
-  console.log("  The OIL MCP server needs the path to your Obsidian vault.");
-  console.log("  This is stored in .env (gitignored) — not committed.");
-  console.log("  Press Enter to use a local vault inside the repo (.vault/).\n");
-
-  const vaultInput = await ask("  Obsidian vault path (Enter = local .vault/): ");
   const localVault = join(ROOT, ".vault");
-  const vaultPath = vaultInput || localVault;
+  const starterDir = join(ROOT, "vault-starter");
 
-  if (!vaultInput) {
-    // Scaffold local vault from vault-starter/ if it doesn't exist yet
-    const starterDir = join(ROOT, "vault-starter");
+  console.log("  L.C.G. needs an Obsidian vault — plain Markdown files for customer notes,");
+  console.log("  meeting history, drafts, and learning corrections. The path is saved to .env");
+  console.log("  (gitignored — not committed).\n");
+  console.log("  Where should your vault live?\n");
+  console.log(`    1) Inside the L.C.G. folder  ${"\x1b[2m"}[recommended — easy to find]${"\x1b[0m"}`);
+  console.log(`       ${"\x1b[2m"}→ ${localVault}${"\x1b[0m"}`);
+  console.log("    2) Create a new vault at a custom location");
+  console.log(`       ${"\x1b[2m"}→ you'll enter a path; the folder will be created if it doesn't exist${"\x1b[0m"}`);
+  console.log("    3) Use an existing Obsidian vault");
+  console.log(`       ${"\x1b[2m"}→ you'll enter the path to a vault you already have${"\x1b[0m"}`);
+  console.log();
+
+  let choice = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = await ask("  Choice [1-3, Enter=1]: ");
+    const normalized = raw.trim();
+    if (normalized === "" || normalized === "1" || normalized === "2" || normalized === "3") {
+      choice = normalized || "1";
+      break;
+    }
+    warn(`Invalid choice "${raw}". Enter 1, 2, or 3.`);
+  }
+  if (!choice) {
+    warn("No valid choice provided — defaulting to option 1 (local .vault/).");
+    choice = "1";
+  }
+
+  let vaultPath = localVault;
+
+  if (choice === "1") {
     if (!existsSync(localVault) && existsSync(starterDir)) {
       info("Initializing local vault from vault-starter/...");
       cpSync(starterDir, localVault, { recursive: true });
@@ -740,10 +775,47 @@ async function configureEnv() {
     } else if (existsSync(localVault)) {
       ok(`Local vault already exists at ${localVault}`);
     }
-    info("You can point this to an Obsidian vault later by editing .env");
-  } else if (!existsSync(vaultPath)) {
-    warn(`Path does not exist yet: ${vaultPath}`);
-    warn("Saving anyway — make sure the vault is created before starting OIL.");
+  } else if (choice === "2") {
+    const raw = (await ask("  New vault path: ")).trim().replace(/^["']|["']$/g, "");
+    if (!raw) {
+      warn("No path provided — falling back to local .vault/.");
+      vaultPath = localVault;
+      if (!existsSync(localVault) && existsSync(starterDir)) {
+        cpSync(starterDir, localVault, { recursive: true });
+      }
+    } else {
+      vaultPath = resolve(raw);
+      if (!existsSync(vaultPath)) {
+        info(`Creating new vault at ${vaultPath}`);
+        mkdirSync(vaultPath, { recursive: true });
+      }
+      if (existsSync(starterDir)) {
+        info("Seeding vault-starter/ into the new vault...");
+        cpSync(starterDir, vaultPath, { recursive: true });
+      }
+      ok(`Vault created at ${vaultPath}`);
+    }
+  } else {
+    // choice === "3"
+    const raw = (await ask("  Path to existing Obsidian vault: ")).trim().replace(/^["']|["']$/g, "");
+    if (!raw) {
+      warn("No path provided — falling back to local .vault/.");
+      vaultPath = localVault;
+      if (!existsSync(localVault) && existsSync(starterDir)) {
+        cpSync(starterDir, localVault, { recursive: true });
+      }
+    } else {
+      vaultPath = resolve(raw);
+      if (!existsSync(vaultPath)) {
+        warn(`Path does not exist: ${vaultPath}`);
+        warn("Saving anyway — create the vault before starting OIL,");
+        warn("or re-run 'npm run vault:init' after creating it.");
+      } else {
+        ok(`Using existing vault at ${vaultPath}`);
+        info("Starter templates (_lcg/, Daily/, Meetings/, …) will be seeded next");
+        info("without overwriting any existing files.");
+      }
+    }
   }
 
   // Append to .env (preserve any other vars)
