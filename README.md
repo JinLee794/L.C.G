@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 2. Paste this one-liner and press **Enter**:
 
    ```powershell
-   Set-ExecutionPolicy -Scope Process Bypass -Force; irm "https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)" | iex
+   Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)"; & ([scriptblock]::Create($s)) -Ref lv-installation
    ```
 
 ---
