@@ -139,15 +139,32 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
   if (!isWin) return false;
 
   if (has("winget")) {
-    const rc = run("winget", [
-      "install",
-      "--id",
-      wingetId,
-      "-e",
-      "--silent",
-      "--accept-package-agreements",
-      "--accept-source-agreements",
-    ]);
+    let rc;
+    // Windows Installer (msiexec) holds a global mutex; back-to-back MSI
+    // installs (e.g. Git followed by Azure CLI) can fail with exit 1618
+    // ("another installation is already in progress"). Retry with backoff
+    // when winget reports the matching error class.
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      rc = run("winget", [
+        "install",
+        "--id",
+        wingetId,
+        "-e",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+      ]);
+      if (rc === 0 || rc === 1622) break;
+      const isMsiBusy = isMsiBusyExitCode(rc);
+      if (isMsiBusy && attempt < maxAttempts) {
+        const waitSec = attempt * 10; // 10s, 20s, 30s
+        warn(`winget reported MSI busy (exit ${rc}) for ${wingetId} — waiting ${waitSec}s for prior installer to finish (attempt ${attempt}/${maxAttempts - 1})...`);
+        waitForMsiIdle(waitSec * 1000);
+        continue;
+      }
+      break;
+    }
     // winget returns non-zero for several benign conditions:
     //   0x8a15002b (already installed)
     //   1622        (installer succeeded but log file couldn't be written)
@@ -174,6 +191,31 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
   }
 
   return false;
+}
+
+// Recognize MSI/winget exit codes that indicate another installer holds the
+// Windows Installer mutex. 1618 is the canonical msiexec code; the rest are
+// the winget hex codes (printed as unsigned decimals) that map to the same
+// underlying condition.
+function isMsiBusyExitCode(rc) {
+  if (rc === 1618) return true;
+  // 0x8A150011 / 0x8A150092 / 0x8A15010D — winget "install in progress"-class errors
+  if (rc === 0x8A150011 || rc === 0x8A150092 || rc === 0x8A15010D) return true;
+  // Same values when surfaced as unsigned 32-bit decimals
+  if (rc === 2316632081 || rc === 2316632210 || rc === 2316632333) return true;
+  return false;
+}
+
+// Block until no msiexec.exe processes are running, or until timeoutMs elapses.
+function waitForMsiIdle(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const r = spawnSync("tasklist", ["/FI", "IMAGENAME eq msiexec.exe", "/NH"], { encoding: "utf-8" });
+    const out = (r.stdout || "").toLowerCase();
+    if (!out.includes("msiexec.exe")) return;
+    // Sleep ~2s between probes without using async/await (we're in a sync path).
+    spawnSync(process.execPath, ["-e", "setTimeout(()=>{}, 2000)"], { stdio: "ignore" });
+  }
 }
 
 function hasGhCopilot() {
@@ -249,6 +291,10 @@ function installGit() {
   info("git is required for repo operations — installing it now...");
   const installed = installWithWingetOrChoco("Git.Git", "git");
   if (!installed) return false;
+
+  // Wait for the Git MSI to fully release the Windows Installer mutex before
+  // the next prerequisite (e.g. Azure CLI) tries to start its own MSI.
+  waitForMsiIdle(60_000);
 
   if (has("git")) return true;
 
