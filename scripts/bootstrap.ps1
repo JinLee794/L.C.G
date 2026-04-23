@@ -41,10 +41,42 @@ function Test-Node {
   return ($major -ge $MinNodeMajor)
 }
 
+function Wait-MsiIdle {
+  param([int]$TimeoutSec = 180)
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  while ((Get-Date) -lt $deadline) {
+    $busy = Get-Process -Name msiexec -ErrorAction SilentlyContinue |
+      Where-Object { $_.Id -ne $PID }
+    if (-not $busy) { return $true }
+    Start-Sleep -Seconds 3
+  }
+  return $false
+}
+
+function Invoke-WingetInstall {
+  param([string]$Id, [int]$MaxAttempts = 4)
+  # Codes that indicate "another MSI is in progress" (1618 and winget hex variants).
+  $busyCodes = @(1618, -1978335006, -1978334974)
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    Wait-MsiIdle | Out-Null
+    & winget install --id $Id --silent --accept-package-agreements --accept-source-agreements
+    $code = $LASTEXITCODE
+    if ($code -eq 0) { return 0 }
+    if ($busyCodes -notcontains $code) { return $code }
+    $backoff = [math]::Min(30, 5 * $attempt)
+    Say-Warn "winget reported another installer is busy (exit $code). Retrying in ${backoff}s (attempt $attempt of $MaxAttempts)..."
+    Start-Sleep -Seconds $backoff
+  }
+  return $LASTEXITCODE
+}
+
 function Install-Node {
   if (Get-Command winget -ErrorAction SilentlyContinue) {
     Say-Info "Installing Node via winget..."
-    & winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+    $code = Invoke-WingetInstall -Id "OpenJS.NodeJS.LTS"
+    if ($code -ne 0) {
+      Say-Fail "winget install OpenJS.NodeJS.LTS exited with code $code."
+    }
     return
   }
   if (Get-Command choco -ErrorAction SilentlyContinue) {
@@ -72,7 +104,9 @@ if (Test-Node) {
 
   if (-not (Test-Node)) {
     Say-Fail "Node installation did not succeed (or PATH needs a new shell)."
-    Say-Info "Open a new PowerShell window and re-run this script."
+    Say-Info "If winget reported exit 1618, another installer (often Windows Update or"
+    Say-Info "DesktopAppInstaller self-update) is holding the MSI lock."
+    Say-Info "Wait ~60s, then open a new PowerShell window and re-run this script."
     return 1
   }
   Say-Ok "Node.js $((& node -v)) installed"
