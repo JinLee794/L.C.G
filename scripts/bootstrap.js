@@ -242,6 +242,28 @@ function normalizeCopilotShim() {
   }
 }
 
+function installGit() {
+  if (has("git")) return true;
+  if (!isWin) return false;
+
+  info("git is required for repo operations — installing it now...");
+  const installed = installWithWingetOrChoco("Git.Git", "git");
+  if (!installed) return false;
+
+  if (has("git")) return true;
+
+  // Git for Windows installs to Program Files\Git\cmd\git.exe.
+  const gitBin = findKnownWindowsBinary([
+    "Git\\cmd\\git.exe",
+  ]);
+  if (gitBin) {
+    const dir = dirname(gitBin);
+    process.env.PATH = `${process.env.PATH || ""};${dir}`;
+    return has("git");
+  }
+  return false;
+}
+
 function installAzureCli() {
   if (has("az")) return true;
   if (!isWin) return false;
@@ -428,8 +450,13 @@ if (has("npm")) {
 // git
 if (has("git")) {
   ok(version("git") || "git");
+} else if (!CHECK_ONLY && installGit()) {
+  ok(version("git") || "git");
 } else {
   warn("git not found — required for repo operations");
+  if (!isWin) {
+    warn("  Install git: https://git-scm.com/downloads");
+  }
 }
 
 // Azure CLI (optional — required only by tasks that call `az`).
