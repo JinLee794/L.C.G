@@ -964,15 +964,15 @@ if (checkMode) {
       console.log();
       console.log("  \x1b[1m\x1b[32m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                    │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                      │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│   Run from any terminal, any directory:                     │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[33m│       'lcg'                                                 │\x1b[0m");
-      console.log("  \x1b[1m\x1b[33m│       'lcg' -p \"morning triage\"                             │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│       lcg                                                   │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│       lcg -p \"Who am I in MSX?\"                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,          │\x1b[0m");
-      console.log("  \x1b[1m\x1b[32m│   agents, and skills — no need to cd into the repo.        │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,              │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   agents, and skills — no need to cd into the repo.         │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m└─────────────────────────────────────────────────────────────┘\x1b[0m");
       console.log();
@@ -1008,23 +1008,31 @@ if (checkMode) {
       console.log(`
   You're signed in as ${account}. Everything is ready!
 
-  Next steps:
-    1. Open this repo in VS Code:  code .
-    2. MCP servers auto-start via .vscode/mcp.json
-    3. Open Copilot chat (Cmd+Shift+I) and try: "Who am I in MSX?"
-    4. Or just run 'lcg' from any terminal!
+  Try it now:
+      lcg -p "Who am I in MSX?"
+
+  Optional — for editing skills, prompts, and tasks:
+      code .                # opens the repo in VS Code
+                            # MCP servers auto-start via .vscode/mcp.json
+                            # then open Copilot Chat (Ctrl+Alt+I)
 `);
     } else {
       console.log(`
-  Next steps:
+  Almost there — finish Azure sign-in, then you're ready.
+
+  Required:
     1. Connect to Microsoft VPN
-    2. Sign in to Azure:        az login
+    2. Sign in to Azure:    az login
        Use your Microsoft account (example: alias@microsoft.com)
-       During subscription selection, press Enter to choose any default option
-    3. Open this repo in VS Code:  code .
-    4. MCP servers auto-start via .vscode/mcp.json
-    5. Open Copilot chat (Cmd+Shift+I) and try: "Who am I in MSX?"
-    6. Or just run 'lcg' from any terminal!
+       During subscription selection, press Enter to accept the default
+
+  Try it now:
+      lcg -p "Who am I in MSX?"
+
+  Optional — for editing skills, prompts, and tasks:
+      code .                # opens the repo in VS Code
+                            # MCP servers auto-start via .vscode/mcp.json
+                            # then open Copilot Chat (Ctrl+Alt+I)
 `);
     }
   } else {
