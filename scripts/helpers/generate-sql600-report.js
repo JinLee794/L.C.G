@@ -306,6 +306,13 @@ const momDir = trendValues.length >= 2
   ? arrow(trendValues[trendValues.length - 1], trendValues[trendValues.length - 2])
   : '→';
 const wowDir = parseDollar(snapshot.WoW_Change) > 0 ? '↑' : parseDollar(snapshot.WoW_Change) < 0 ? '↓' : '→';
+const hasAnnualizedGrowth = snapshot.AnnualizedGrowth != null && snapshot.AnnualizedGrowth !== '';
+const effectiveAnnualizedGrowth = hasAnnualizedGrowth
+  ? snapshot.AnnualizedGrowth
+  : (trendValues.length >= 2 ? trendValues[trendValues.length - 1] - trendValues[0] : null);
+const annualizedGrowthSubtext = hasAnnualizedGrowth
+  ? 'Since June 2025 baseline'
+  : 'Derived fallback from Jul→Mar realized ACR';
 
 // Industry ranking position
 const hlsRank = ranking.findIndex(r => r.Industry === 'Healthcare') + 1;
@@ -614,7 +621,40 @@ function heatmapCellClass(v, max) {
 
 function buildAioPillarData(aioBreakdown) {
   if (!aioBreakdown.length) return null;
-  const SQL_RELEVANT_PILLARS = new Set(['data & ai', 'infra']);
+  const SERVICE_PILLAR_STYLES = {
+    'Rest of Infra': { color: '#178f8c', sqlRelevant: true },
+    'Windows Compute': { color: '#0d5c63', sqlRelevant: true },
+    'Linux Compute': { color: '#2f6f8f', sqlRelevant: true },
+    'Azure SQL Core': { color: '#1d7f5f', sqlRelevant: true },
+    'Modern DBs': { color: '#4aa36b', sqlRelevant: true },
+    'Databricks': { color: '#6e8f1f', sqlRelevant: true },
+    'Azure OpenAI': { color: '#7d5fd6', sqlRelevant: true },
+    'Rest of Azure AI': { color: '#a46ef2', sqlRelevant: true },
+    '3P GPU': { color: '#c87ee8', sqlRelevant: true },
+    'Integration Services': { color: '#d96a4c', sqlRelevant: false },
+    'App Platform Services': { color: '#eb8f34', sqlRelevant: false },
+    'Serverless and Supporting App Services': { color: '#efb447', sqlRelevant: false },
+    'Security': { color: '#b4493f', sqlRelevant: false },
+    'Modern Work': { color: '#cc6689', sqlRelevant: false },
+    'Business Applications': { color: '#8d6cab', sqlRelevant: false },
+    'Other': { color: '#8b8fa3', sqlRelevant: false },
+  };
+  const SERVICE_PILLAR_PALETTE = ['#178f8c', '#7d5fd6', '#2f6f8f', '#eb8f34', '#4aa36b', '#c87ee8', '#b4493f', '#6e8f1f'];
+  function fallbackServiceStyle(pillar) {
+    const text = String(pillar || 'Other').trim();
+    const key = text.toLowerCase();
+    if (SERVICE_PILLAR_STYLES[text]) return SERVICE_PILLAR_STYLES[text];
+    if (key.includes('infra') || key.includes('compute')) return { color: '#178f8c', sqlRelevant: true };
+    if (key.includes('sql') || key.includes('db') || key.includes('databricks')) return { color: '#4aa36b', sqlRelevant: true };
+    if (key.includes('ai') || key.includes('openai') || key.includes('gpu')) return { color: '#7d5fd6', sqlRelevant: true };
+    if (key.includes('app') || key.includes('serverless') || key.includes('integration')) return { color: '#eb8f34', sqlRelevant: false };
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+    return {
+      color: SERVICE_PILLAR_PALETTE[hash % SERVICE_PILLAR_PALETTE.length],
+      sqlRelevant: false,
+    };
+  }
   const byAcct = new Map();
   for (const row of aioBreakdown) {
     const key = row.TPID || row.Account;
@@ -631,16 +671,19 @@ function buildAioPillarData(aioBreakdown) {
   return [...byAcct.values()].map(a => {
     const total = Object.values(a.pillars).reduce((s, v) => s + v, 0);
     const sqlAdj = Object.entries(a.pillars)
-      .filter(([p]) => SQL_RELEVANT_PILLARS.has(p.toLowerCase()))
+      .filter(([p]) => fallbackServiceStyle(p).sqlRelevant)
       .reduce((s, [, v]) => s + v, 0);
     const sqlPct = total > 0 ? ((sqlAdj / total) * 100).toFixed(0) : '0';
     const segments = Object.entries(a.pillars).sort(([, a], [, b]) => b - a)
-      .map(([p, v]) => ({
+      .map(([p, v]) => {
+        const style = fallbackServiceStyle(p);
+        return {
         pillar: p, value: v,
         pct: total > 0 ? ((v / total) * 100).toFixed(0) : '0',
-        color: PILLAR_COLORS[p] || '#8b8fa3',
-        sqlRelevant: SQL_RELEVANT_PILLARS.has(p.toLowerCase())
-      }));
+        color: style.color,
+        sqlRelevant: style.sqlRelevant
+      };
+      });
     return { ...a, total, sqlPct, segments };
   }).sort((a, b) => b.total - a.total);
 }
@@ -681,11 +724,23 @@ if (heatmapData) {
 
 // Collect all unique pillar names + colors for the shared legend
 const PILLAR_COLORS_LEGEND = {
-  'Data & AI': '#6c5ce7', 'Infra': '#00b894',
-  'Digital & App Innovation': '#74b9ff', 'Security': '#ffc048',
-  'Modern Work': '#fd79a8', 'Business Applications': '#a29bfe'
+  'Rest of Infra': '#178f8c',
+  'Windows Compute': '#0d5c63',
+  'Linux Compute': '#2f6f8f',
+  'Azure SQL Core': '#1d7f5f',
+  'Modern DBs': '#4aa36b',
+  'Databricks': '#6e8f1f',
+  'Azure OpenAI': '#7d5fd6',
+  'Rest of Azure AI': '#a46ef2',
+  '3P GPU': '#c87ee8',
+  'Integration Services': '#d96a4c',
+  'App Platform Services': '#eb8f34',
+  'Serverless and Supporting App Services': '#efb447',
+  'Security': '#b4493f',
+  'Modern Work': '#cc6689',
+  'Business Applications': '#8d6cab',
 };
-const SQL_REL_PILLARS_SET = new Set(['Data & AI', 'Infra']);
+const SQL_REL_PILLARS_SET = new Set(['Rest of Infra', 'Windows Compute', 'Linux Compute', 'Azure SQL Core', 'Modern DBs', 'Databricks', 'Azure OpenAI', 'Rest of Azure AI', '3P GPU']);
 const allPillarsUsed = new Set();
 if (pillarData) {
   for (const a of pillarData) {
@@ -702,66 +757,87 @@ const html = `<!DOCTYPE html>
 <title>SQL600 HLS Executive Readout — ${generated}</title>
 <style>
   :root {
-    --bg: #0f1117;
-    --surface: #1a1d27;
-    --surface-2: #242837;
-    --border: #2d3148;
-    --text: #e4e5eb;
-    --text-muted: #8b8fa3;
-    --accent: #6c5ce7;
-    --accent-light: #a29bfe;
-    --green: #00b894;
-    --green-bg: rgba(0,184,148,0.12);
-    --red: #ff6b6b;
-    --red-bg: rgba(255,107,107,0.12);
-    --yellow: #ffc048;
-    --yellow-bg: rgba(255,192,72,0.12);
-    --blue: #74b9ff;
-    --blue-bg: rgba(116,185,255,0.12);
-    --white: #ffffff;
-    --card-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    --radius: 12px;
-    --radius-sm: 8px;
+    --bg: #f4efe7;
+    --surface: rgba(255, 252, 246, 0.84);
+    --surface-2: #f6eee1;
+    --border: rgba(46, 78, 94, 0.12);
+    --text: #1e2a32;
+    --text-muted: #6f7e84;
+    --accent: #0d5c63;
+    --accent-light: #178f8c;
+    --green: #117a65;
+    --green-bg: rgba(17,122,101,0.10);
+    --red: #b4493f;
+    --red-bg: rgba(180,73,63,0.10);
+    --yellow: #b7801f;
+    --yellow-bg: rgba(183,128,31,0.12);
+    --blue: #2f6f8f;
+    --blue-bg: rgba(47,111,143,0.10);
+    --white: #173038;
+    --card-shadow: 0 18px 48px rgba(34, 48, 54, 0.10);
+    --radius: 18px;
+    --radius-sm: 12px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    background: var(--bg);
+    font-family: 'Aptos', 'Segoe UI Variable Text', 'Trebuchet MS', 'Gill Sans', sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(23,143,140,0.12), transparent 28%),
+      radial-gradient(circle at top right, rgba(191,131,42,0.10), transparent 24%),
+      linear-gradient(180deg, #f8f4ee 0%, var(--bg) 52%, #efe7db 100%);
     color: var(--text);
     line-height: 1.5;
     padding: 0;
   }
   .header {
-    background: linear-gradient(135deg, #1e1240 0%, #2d1f6b 40%, #6c5ce7 100%);
-    padding: 40px 48px 32px;
-    border-bottom: 1px solid var(--border);
+    background:
+      radial-gradient(circle at top right, rgba(255,255,255,0.16), transparent 28%),
+      linear-gradient(135deg, #12343b 0%, #1d5660 46%, #2f6f8f 100%);
+    padding: 44px 48px 36px;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
     position: relative;
     overflow: hidden;
   }
   .header::after {
     content: '';
     position: absolute;
-    top: -40%;
-    right: -10%;
-    width: 400px;
-    height: 400px;
-    background: radial-gradient(circle, rgba(108,92,231,0.3) 0%, transparent 70%);
+    inset: auto -6% -28% auto;
+    width: 420px;
+    height: 420px;
+    background: radial-gradient(circle, rgba(255,255,255,0.18) 0%, transparent 68%);
+    pointer-events: none;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 36px 36px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,0.48), transparent 78%);
     pointer-events: none;
   }
   .header-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; z-index: 1; }
-  .header h1 { font-size: 28px; font-weight: 700; color: var(--white); letter-spacing: -0.5px; }
-  .header .subtitle { font-size: 14px; color: rgba(255,255,255,0.6); margin-top: 4px; }
+  .header h1 {
+    font-family: 'Georgia', 'Palatino Linotype', serif;
+    font-size: 34px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.7px;
+    line-height: 1.08;
+  }
+  .header .subtitle { font-size: 14px; color: rgba(255,255,255,0.72); margin-top: 8px; letter-spacing: 0.2px; }
   .header .badge {
     display: inline-flex; align-items: center; gap: 6px;
-    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 20px; padding: 6px 14px; font-size: 13px; color: rgba(255,255,255,0.85);
-    backdrop-filter: blur(8px);
+    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 999px; padding: 8px 15px; font-size: 12px; color: rgba(255,255,255,0.92);
+    backdrop-filter: blur(12px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
   }
   .header .meta { display: flex; gap: 24px; margin-top: 20px; position: relative; z-index: 1; }
-  .header .meta-item { font-size: 13px; color: rgba(255,255,255,0.5); }
+  .header .meta-item { font-size: 13px; color: rgba(255,255,255,0.62); }
   .header .meta-item strong { color: rgba(255,255,255,0.9); }
 
-  .container { max-width: 1400px; margin: 0 auto; padding: 32px 48px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 32px 48px 44px; }
 
   /* KPI Cards */
   .kpi-grid {
@@ -776,9 +852,10 @@ const html = `<!DOCTYPE html>
     border-radius: var(--radius);
     padding: 20px 24px;
     box-shadow: var(--card-shadow);
+    backdrop-filter: blur(14px);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
-  .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+  .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 24px 54px rgba(34,48,54,0.14); }
   .kpi-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 8px; }
   .kpi-value { font-size: 28px; font-weight: 700; color: var(--white); }
   .kpi-sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; display: flex; align-items: center; gap: 6px; }
@@ -799,6 +876,7 @@ const html = `<!DOCTYPE html>
     padding: 28px 32px;
     margin-bottom: 24px;
     box-shadow: var(--card-shadow);
+    backdrop-filter: blur(14px);
   }
   .section-header {
     display: flex; justify-content: space-between; align-items: center;
@@ -831,7 +909,7 @@ const html = `<!DOCTYPE html>
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
-    background: var(--surface);
+    background: rgba(255,252,246,0.94);
   }
   thead th.right, td.right { text-align: right; }
   tbody td {
@@ -840,7 +918,7 @@ const html = `<!DOCTYPE html>
     color: var(--text);
     white-space: nowrap;
   }
-  tbody tr:hover { background: rgba(108,92,231,0.06); }
+  tbody tr:hover { background: rgba(23,143,140,0.07); }
   tbody tr:last-child td { border-bottom: none; }
   .acct-name { font-weight: 600; color: var(--white); max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
   .msx-link { color: var(--white); text-decoration: none; border-bottom: 1px dashed transparent; transition: all 0.15s; }
@@ -977,8 +1055,8 @@ const html = `<!DOCTYPE html>
 
   /* Callout */
   .callout {
-    background: linear-gradient(135deg, rgba(108,92,231,0.1), rgba(162,155,254,0.05));
-    border: 1px solid rgba(108,92,231,0.25);
+    background: linear-gradient(135deg, rgba(13,92,99,0.10), rgba(47,111,143,0.05));
+    border: 1px solid rgba(13,92,99,0.18);
     border-radius: var(--radius-sm);
     padding: 16px 20px;
     margin: 16px 0;
@@ -987,8 +1065,8 @@ const html = `<!DOCTYPE html>
   }
   .callout strong { color: var(--accent-light); }
   .callout.risk {
-    background: linear-gradient(135deg, rgba(255,107,107,0.1), rgba(255,107,107,0.03));
-    border-color: rgba(255,107,107,0.25);
+    background: linear-gradient(135deg, rgba(180,73,63,0.10), rgba(183,128,31,0.05));
+    border-color: rgba(180,73,63,0.18);
   }
   .callout.risk strong { color: var(--red); }
 
@@ -1040,11 +1118,12 @@ const html = `<!DOCTYPE html>
   /* Export button */
   .export-btn {
     display: inline-flex; align-items: center; gap: 8px;
-    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25);
-    border-radius: 8px; padding: 8px 18px;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.24);
+    border-radius: 999px; padding: 10px 18px;
     font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9);
     cursor: pointer; transition: all 0.2s ease;
-    backdrop-filter: blur(8px); position: relative; z-index: 1;
+    backdrop-filter: blur(12px); position: relative; z-index: 1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
   }
   .export-btn:hover { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.4); transform: translateY(-1px); }
   .export-btn:active { transform: translateY(0); }
@@ -1346,8 +1425,8 @@ const html = `<!DOCTYPE html>
   </div>
   <div class="kpi-card green">
     <div class="kpi-label">Annualized Growth</div>
-    <div class="kpi-value">${fmtDollar(snapshot.AnnualizedGrowth)}</div>
-    <div class="kpi-sub">Since June 2025 baseline</div>
+    <div class="kpi-value">${fmtDollar(effectiveAnnualizedGrowth)}</div>
+    <div class="kpi-sub">${annualizedGrowthSubtext}</div>
   </div>
   <div class="kpi-card blue">
     <div class="kpi-label">Committed Pipeline</div>
@@ -1385,7 +1464,7 @@ const html = `<!DOCTYPE html>
 <div class="callout">
   ${narrative.headline
     ? `<strong>Executive Read:</strong> ${mdInline(narrative.headline)}`
-    : `<strong>DBC Narrative:</strong> Healthcare ranks <strong>#${hlsRank}</strong> among SQL600 industries with <strong>${fmtDollar(snapshot.ACR_LCM)}</strong> monthly ACR and <strong>${fmtPct(snapshot.PipelinePenetration)}</strong> pipeline penetration. With <strong>${fmtDollar(snapshot.AnnualizedGrowth)}</strong> in annualized growth and <strong>${fmtNum(snapshot.ModernizationOpps)}</strong> modernization opportunities, HLS carries <strong>${fmtNum(snapshot.AcctsWithoutModPipe)}</strong> accounts without modernization pipeline — direct <strong>GCP leakage risk</strong>.`}
+    : `<strong>DBC Narrative:</strong> Healthcare ranks <strong>#${hlsRank}</strong> among SQL600 industries with <strong>${fmtDollar(snapshot.ACR_LCM)}</strong> monthly ACR and <strong>${fmtPct(snapshot.PipelinePenetration)}</strong> pipeline penetration. With <strong>${fmtDollar(effectiveAnnualizedGrowth)}</strong> in annualized growth and <strong>${fmtNum(snapshot.ModernizationOpps)}</strong> modernization opportunities, HLS carries <strong>${fmtNum(snapshot.AcctsWithoutModPipe)}</strong> accounts without modernization pipeline — direct <strong>GCP leakage risk</strong>.`}
 </div>
 
 <!-- Hero: ACR Trajectory (full-width) -->

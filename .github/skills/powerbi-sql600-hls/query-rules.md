@@ -45,8 +45,8 @@ SUMMARIZECOLUMNS(
     ),
     "ACR_LCM", [ACR (Last Closed Month)],
     "ACR_YoY_Pct", [ACR Change Δ% - YTD YoY],
-    "AnnualizedGrowth", [Annualized ACR Growth (since June 2025)],
-    "AnnualizedGrowthPlusPipe", [Annualized ACR Growth + Pipeline],
+    "AnnualizedGrowth", [Annualized ACR Growth (since June 2025) (FY26)],
+    "AnnualizedGrowthPlusPipe", [Annualized ACR Growth + Pipeline (FY26)],
     "PipeCommitted", [Pipeline ACR (Committed excl Blocked)],
     "PipeUncommitted", [Pipeline ACR (Uncommitted)],
     "PipeQualified", [Pipeline ACR (Qualified)],
@@ -113,7 +113,7 @@ SUMMARIZECOLUMNS(
     "ACR_LCM", [ACR (Last Closed Month)],
     "PipeCommitted", [Pipeline ACR (Committed excl Blocked)],
     "PipeUncommitted", [Pipeline ACR (Uncommitted)],
-    "AnnualizedGrowth", [Annualized ACR Growth (since June 2025)],
+    "AnnualizedGrowth", [Annualized ACR Growth (since June 2025) (FY26)],
     "ModOpps", [Modernization Opportunities]
 )
 ORDER BY [ACR_LCM] DESC
@@ -167,8 +167,8 @@ TOPN(15,
         "ACR_LCM", [ACR (Last Closed Month)],
         "PipeCommitted", [Pipeline ACR (Committed excl Blocked)],
         "PipeUncommitted", [Pipeline ACR (Uncommitted)],
-        "AnnualizedGrowth", [Annualized ACR Growth (since June 2025)],
-        "AnnualizedGrowthPlusPipe", [Annualized ACR Growth + Pipeline]
+        "AnnualizedGrowth", [Annualized ACR Growth (since June 2025) (FY26)],
+        "AnnualizedGrowthPlusPipe", [Annualized ACR Growth + Pipeline (FY26)]
     ),
     [ACR_LCM], DESC
 )

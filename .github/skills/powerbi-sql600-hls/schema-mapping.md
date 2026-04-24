@@ -26,8 +26,8 @@ All pre-built measures live here. No columns — measures only.
 | `ACR (LY)` | Integer | — | Last year comparison |
 | `ACR Change Δ% - YTD YoY` | Double | 0% | Year-over-year delta |
 | `ACR % of Column Total` | Double | — | Share of total |
-| `Annualized ACR Growth (since June 2025)` | Decimal | $#,0 | **Key growth metric** |
-| `Annualized ACR Growth + Pipeline` | Double | $#,0 | Growth + pipeline forward view |
+| `Annualized ACR Growth (since June 2025) (FY26)` | Decimal | $#,0 | **Key growth metric** |
+| `Annualized ACR Growth + Pipeline (FY26)` | Double | $#,0 | Growth + pipeline forward view |
 | `ACR (Excluding Current Month)` | Decimal | $#,0 | |
 | `Baseline ACR (Current Open Month Onwards)` | Double | $#,0 | |
 | `Realized ACR + Baseline + Pipe` | Double | $#,0 | **Composite forward view** |
