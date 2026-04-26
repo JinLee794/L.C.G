@@ -20,7 +20,7 @@
  *   Windows:  winget install OpenJS.NodeJS    (or use nvm-windows)
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -146,6 +146,64 @@ function runCapture(cmd, cmdArgs, opts = {}) {
   });
 }
 
+async function runCaptureWithHeartbeat(cmd, cmdArgs, opts = {}) {
+  const {
+    heartbeatLabel = `${cmd} ${cmdArgs.join(" ")}`,
+    cwd = ROOT,
+    ...spawnOpts
+  } = opts;
+
+  const spinnerFrames = ["|", "/", "-", "\\"];
+  const startedAt = Date.now();
+
+  return await new Promise((resolve) => {
+    const child = spawn(cmd, cmdArgs, {
+      cwd,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      ...spawnOpts,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let frame = 0;
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    process.stdout.write(`  ${C.blue}-> ${heartbeatLabel}...${C.reset}\n`);
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const spin = spinnerFrames[frame % spinnerFrames.length];
+      frame += 1;
+      process.stdout.write(`\r  ${C.blue}-> ${heartbeatLabel}... ${spin} ${elapsed}s elapsed${C.reset}`);
+    }, 1000);
+
+    const finalize = (status, errMsg = "") => {
+      clearInterval(timer);
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      process.stdout.write(`\r  ${C.blue}-> ${heartbeatLabel}... done in ${elapsed}s${C.reset}                      \n`);
+      resolve({
+        status,
+        stdout,
+        stderr: errMsg ? `${stderr}\n${errMsg}`.trim() : stderr,
+      });
+    };
+
+    child.on("error", (err) => {
+      finalize(1, err?.message || "Failed to start installer process.");
+    });
+
+    child.on("close", (code) => {
+      finalize(code ?? 1);
+    });
+  });
+}
+
 function runQuiet(cmd, cmdArgs, opts = {}) {
   const r = spawnSync(cmd, cmdArgs, { stdio: "ignore", cwd: ROOT, ...opts });
   return r.status ?? 1;
@@ -160,7 +218,7 @@ function summarizeCommandOutput(result) {
   return text.at(-1) || "";
 }
 
-function installWithWingetOrChoco(wingetId, chocoPkg) {
+async function installWithWingetOrChoco(wingetId, chocoPkg) {
   if (!isWin) return false;
 
   showWindowsUacNote();
@@ -174,7 +232,7 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
     // when winget reports the matching error class.
     const maxAttempts = 4;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const result = runCapture("winget", [
+      const result = await runCaptureWithHeartbeat("winget", [
         "install",
         "--id",
         wingetId,
@@ -182,7 +240,7 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
         "--silent",
         "--accept-package-agreements",
         "--accept-source-agreements",
-      ]);
+      ], { heartbeatLabel: `Installing ${wingetId} via winget` });
       rc = result.status ?? 1;
       wingetSummary = summarizeCommandOutput(result);
       if (rc === 0 || rc === 1622) break;
@@ -214,7 +272,12 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
   }
 
   if (has("choco")) {
-    const rc = run("choco", ["install", chocoPkg, "-y"]);
+    const result = await runCaptureWithHeartbeat(
+      "choco",
+      ["install", chocoPkg, "-y"],
+      { heartbeatLabel: `Installing ${chocoPkg} via Chocolatey` }
+    );
+    const rc = result.status ?? 1;
     if (rc === 0) {
       refreshWindowsPath();
       return true;
@@ -319,12 +382,13 @@ function normalizeCopilotShim() {
   }
 }
 
-function installGit() {
+async function installGit() {
   if (has("git")) return true;
   if (!isWin) return false;
 
   info("git is required for repo operations — installing it now...");
-  const installed = installWithWingetOrChoco("Git.Git", "git");
+  info("This can take a few minutes. Progress will be shown while installation runs.");
+  const installed = await installWithWingetOrChoco("Git.Git", "git");
   if (!installed) return false;
 
   // Wait for the Git MSI to fully release the Windows Installer mutex before
@@ -345,12 +409,13 @@ function installGit() {
   return false;
 }
 
-function installAzureCli() {
+async function installAzureCli() {
   if (has("az")) return true;
   if (!isWin) return false;
 
   info("Azure CLI missing - installing...");
-  const installed = installWithWingetOrChoco("Microsoft.AzureCLI", "azure-cli");
+  info("This can take a few minutes. Progress will be shown while installation runs.");
+  const installed = await installWithWingetOrChoco("Microsoft.AzureCLI", "azure-cli");
   if (!installed) return false;
 
   // winget sometimes returns before the new PATH entry is visible to the
@@ -394,13 +459,13 @@ function hasVsCode() {
   return false;
 }
 
-function installVsCode() {
+async function installVsCode() {
   if (hasVsCode()) return true;
 
   info("Visual Studio Code missing - installing...");
 
   if (isWin) {
-    const installed = installWithWingetOrChoco("Microsoft.VisualStudioCode", "vscode");
+    const installed = await installWithWingetOrChoco("Microsoft.VisualStudioCode", "vscode");
     if (!installed) return false;
     if (hasVsCode()) return true;
     // One more PATH refresh in case the shim landed after winget returned.
@@ -453,7 +518,7 @@ function installVsCode() {
   return false;
 }
 
-function installCopilotCli() {
+async function installCopilotCli() {
   if (hasRunnableCopilot()) return true;
 
   info("Copilot CLI missing - installing official @github/copilot npm package...");
@@ -477,7 +542,7 @@ function installCopilotCli() {
   // typically already have this wired up through the official package above).
   if (isWin) {
     if (!has("gh")) {
-      installWithWingetOrChoco("GitHub.cli", "gh");
+      await installWithWingetOrChoco("GitHub.cli", "gh");
     }
     if (has("gh")) {
       runQuiet("gh", ["extension", "remove", "github/gh-copilot"]);
@@ -531,7 +596,7 @@ if (has("npm")) {
 // git
 if (has("git")) {
   ok(version("git") || "git");
-} else if (!CHECK_ONLY && installGit()) {
+} else if (!CHECK_ONLY && await installGit()) {
   ok(version("git") || "git");
 } else {
   warn("git not found — required for repo operations");
@@ -543,7 +608,7 @@ if (has("git")) {
 // Azure CLI (optional — required only by tasks that call `az`).
 let hasAz = has("az");
 if (!hasAz && !CHECK_ONLY) {
-  hasAz = installAzureCli();
+  hasAz = await installAzureCli();
 }
 if (hasAz) {
   const azRaw = version("az", "version");
@@ -558,7 +623,7 @@ if (hasAz) {
 // to `gh copilot` if available. Never fatal: users can install later.
 let hasCopilot = hasRunnableCopilot();
 if (!hasCopilot && !CHECK_ONLY) {
-  hasCopilot = installCopilotCli();
+  hasCopilot = await installCopilotCli();
 }
 if (hasCopilot) {
   if (hasRunnableCopilot()) {
