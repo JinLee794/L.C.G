@@ -130,9 +130,26 @@ function run(cmd, cmdArgs, opts = {}) {
   return r.status ?? 1;
 }
 
+function runCapture(cmd, cmdArgs, opts = {}) {
+  return spawnSync(cmd, cmdArgs, {
+    cwd: ROOT,
+    encoding: "utf8",
+    ...opts,
+  });
+}
+
 function runQuiet(cmd, cmdArgs, opts = {}) {
   const r = spawnSync(cmd, cmdArgs, { stdio: "ignore", cwd: ROOT, ...opts });
   return r.status ?? 1;
+}
+
+function summarizeCommandOutput(result) {
+  const text = [result.stdout || "", result.stderr || ""]
+    .join("\n")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return text.at(-1) || "";
 }
 
 function installWithWingetOrChoco(wingetId, chocoPkg) {
@@ -140,13 +157,14 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
 
   if (has("winget")) {
     let rc;
+    let wingetSummary = "";
     // Windows Installer (msiexec) holds a global mutex; back-to-back MSI
     // installs (e.g. Git followed by Azure CLI) can fail with exit 1618
     // ("another installation is already in progress"). Retry with backoff
     // when winget reports the matching error class.
     const maxAttempts = 4;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      rc = run("winget", [
+      const result = runCapture("winget", [
         "install",
         "--id",
         wingetId,
@@ -155,6 +173,8 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
         "--accept-package-agreements",
         "--accept-source-agreements",
       ]);
+      rc = result.status ?? 1;
+      wingetSummary = summarizeCommandOutput(result);
       if (rc === 0 || rc === 1622) break;
       const isMsiBusy = isMsiBusyExitCode(rc);
       if (isMsiBusy && attempt < maxAttempts) {
@@ -178,7 +198,8 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
       return true;
     }
     if (rc !== 0) {
-      warn(`winget exited with code ${rc} for ${wingetId}; probing for tool and falling back if needed.`);
+      const detail = wingetSummary ? ` (${wingetSummary})` : "";
+      warn(`winget exited with code ${rc} for ${wingetId}${detail}; probing for tool and falling back if needed.`);
     }
   }
 

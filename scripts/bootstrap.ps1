@@ -59,7 +59,7 @@ function Invoke-WingetInstall {
   $busyCodes = @(1618, -1978335006, -1978334974)
   for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     Wait-MsiIdle | Out-Null
-    & winget install --id $Id --silent --accept-package-agreements --accept-source-agreements | Out-Host
+    $output = @(& winget install --id $Id --silent --accept-package-agreements --accept-source-agreements 2>&1)
     # Coerce $LASTEXITCODE to int; winget can leave it null or as a non-numeric string
     # in some edge cases (which would otherwise look like a non-zero failure below).
     $raw = $LASTEXITCODE
@@ -67,6 +67,12 @@ function Invoke-WingetInstall {
     if ($null -ne $raw -and -not [int]::TryParse([string]$raw, [ref]$code)) { $code = -1 }
     elseif ($null -ne $raw) { $code = [int]$raw }
     if ($code -eq 0) { return 0 }
+    if ($output) {
+      $lines = $output | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }
+      if ($lines.Count -gt 0) {
+        Say-Warn "winget: $($lines[-1])"
+      }
+    }
     if ($busyCodes -notcontains $code) { return $code }
     $backoff = [math]::Min(30, 5 * $attempt)
     Say-Warn "winget reported another installer is busy (exit $code). Retrying in ${backoff}s (attempt $attempt of $MaxAttempts)..."
