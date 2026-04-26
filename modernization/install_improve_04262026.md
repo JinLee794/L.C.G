@@ -119,15 +119,29 @@ Make `bootstrap.ps1` feel like a real installer the first time an executive runs
    - Azure-CLI section: when `LCG_AZ_AUTH_DONE=1` and Node-side `az account show` doesn't see a token, print a neutral note instead of re-prompting.
    - No other Node logic changes.
 
+8. **Final hardening pass (post-review)**
+   - If `.env` already contains `OBSIDIAN_VAULT_PATH`, wizard now asks whether to keep that configured vault path before showing vault picker options.
+   - `.env` writes now use replace-or-add behavior for `OBSIDIAN_VAULT_PATH` (no duplicate keys; newline-safe write).
+   - Post-handoff silent Azure sign-in now runs only when Node handoff exits successfully.
+
 ---
 
 ## Files changed
+
+### Core session changes
 
 | File | Change |
 |---|---|
 | `scripts/bootstrap.ps1` | Added `-Silent` switch, `Test-Interactive`, `Show-Banner`, `Find-ObsidianInstall`, `Get-KnownObsidianVaults`, `Read-Choice`, `Read-YesNo`, `Invoke-SilentAzLogin`, `Invoke-Wizard`. Wizard call site before `--- Ensuring Node.js ---`. Silent az login attempt before and after Node handoff. Quieted `Invoke-WingetInstall` output. |
 | `scripts/bootstrap.js` | Added `runCapture()` + `summarizeCommandOutput()`. Quieted `installWithWingetOrChoco()` output. |
 | `scripts/init.js` | Wizard handoff short-circuit in `configureEnv()`. Honors `LCG_SKIP_OBSIDIAN_INSTALL` in `ensureObsidianDesktop()`. Honors `LCG_AZ_AUTH_DONE` in Azure-CLI prereq branch. Replaced "GitHub CLI installed but not signed in" warnings with neutral "sign-in pending" info line. Removed redundant `npm run auth:packages` line from normal install path. |
+
+### Follow-up hardening changes discussed and implemented
+
+| File | Change |
+|---|---|
+| `scripts/bootstrap.ps1` | Added `Get-ConfiguredVaultPath` and wizard prompt to keep/reuse existing `.env` vault path. Gated post-handoff `Invoke-SilentAzLogin` retry to `nodeExit == 0` only. |
+| `scripts/init.js` | Added `.env` `upsertEnvVar` helper and switched vault path persistence to replace-or-add semantics (prevents duplicate `OBSIDIAN_VAULT_PATH` entries and malformed newline joins). |
 
 ---
 
@@ -137,6 +151,7 @@ Make `bootstrap.ps1` feel like a real installer the first time an executive runs
 - `node --check scripts/bootstrap.js`: clean.
 - `node --check scripts/init.js`: clean.
 - `pwsh -Silent -Check` smoke test: wizard cleanly bypassed, current behavior preserved, prereq check completes.
+- Re-run after hardening updates: `pwsh -NoProfile -Command "& { . './scripts/bootstrap.ps1' -Silent -Check }"` and `node --check scripts/init.js` both clean.
 
 ### Manual verification scenarios (run on real Windows box)
 

@@ -103,6 +103,26 @@ function Get-KnownObsidianVaults {
   return $vaults | Sort-Object -Property Ts -Descending
 }
 
+function Get-ConfiguredVaultPath {
+  $envFile = Join-Path $Root ".env"
+  if (-not (Test-Path $envFile)) { return $null }
+  try {
+    $lines = Get-Content -LiteralPath $envFile
+  } catch { return $null }
+
+  foreach ($line in $lines) {
+    if ($line -match '^\s*OBSIDIAN_VAULT_PATH\s*=\s*(.+?)\s*$') {
+      $raw = $Matches[1].Trim().Trim('"').Trim("'")
+      if ($raw) {
+        try { return [System.IO.Path]::GetFullPath($raw) }
+        catch { return $raw }
+      }
+    }
+  }
+
+  return $null
+}
+
 function Read-Choice {
   param(
     [string]$Prompt,
@@ -188,6 +208,33 @@ function Invoke-Wizard {
   # ─── Vault selection ─────────────────────────────────────────
   Write-Host ""
   Write-Host "  --- Vault location ---" -ForegroundColor DarkCyan
+
+  $configuredVault = Get-ConfiguredVaultPath
+  if ($configuredVault -and (Test-Path $configuredVault)) {
+    Say-Info "Existing vault from .env: $configuredVault"
+    if (Read-YesNo -Prompt "Use this configured vault path?" -Default $true) {
+      $vaultPath = $configuredVault
+      $vaultMode = "existing"
+      Write-Host ""
+      Write-Host "  --- Review your choices ---" -ForegroundColor DarkCyan
+      Write-Host "    Vault:    $vaultPath"
+      Write-Host "    Vault mode: $vaultMode"
+      Write-Host "    Obsidian: $(if ($obsidian) { 'detected' } elseif ($skipObsidianInstall) { 'skip' } else { 'install' })"
+      Write-Host "    Azure sign-in: silent (WAM broker)"
+      Write-Host ""
+      $go = Read-YesNo -Prompt "Proceed with installation?" -Default $true
+      if (-not $go) {
+        Say-Info "Installation cancelled. Re-run when ready."
+        exit 0
+      }
+
+      $env:LCG_VAULT_PATH = $vaultPath
+      $env:LCG_VAULT_MODE = $vaultMode
+      if ($skipObsidianInstall) { $env:LCG_SKIP_OBSIDIAN_INSTALL = "1" }
+      return
+    }
+  }
+
   $localVault = Join-Path $Root ".vault"
   $vaults = Get-KnownObsidianVaults
   $options = @()
@@ -370,7 +417,7 @@ $nodeExit = $LASTEXITCODE
 
 # Post-handoff: if Azure CLI was just installed and silent sign-in hasn't
 # happened yet, try now so the user doesn't have to deal with az login later.
-if ($RunWizard -and -not $env:LCG_AZ_AUTH_DONE) {
+if ($RunWizard -and -not $env:LCG_AZ_AUTH_DONE -and $nodeExit -eq 0) {
   Write-Host ""
   Write-Host "--- Azure sign-in ---" -ForegroundColor Cyan
   if (Invoke-SilentAzLogin) { $env:LCG_AZ_AUTH_DONE = "1" }

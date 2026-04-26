@@ -795,6 +795,22 @@ function parseEnvFile(filePath) {
   return vars;
 }
 
+function upsertEnvVar(filePath, key, value) {
+  const newLine = `${key}=${value}`;
+  const content = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
+  const lines = content === "" ? [] : content.split(/\r?\n/);
+  const kept = lines.filter((entry) => {
+    const trimmed = entry.trim();
+    if (!trimmed || trimmed.startsWith("#")) return true;
+    const eq = entry.indexOf("=");
+    if (eq === -1) return true;
+    return entry.slice(0, eq).trim() !== key;
+  });
+
+  kept.push(newLine);
+  writeFileSync(filePath, `${kept.join("\n")}\n`, "utf-8");
+}
+
 function ask(question) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => rl.question(question, (a) => { rl.close(); resolve(a.trim()); }));
@@ -827,9 +843,7 @@ async function configureEnv() {
         cpSync(starterDir, wizardVault, { recursive: true });
       }
     }
-    const envLine = `OBSIDIAN_VAULT_PATH=${wizardVault}\n`;
-    const content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
-    writeFileSync(envPath, content + envLine, "utf-8");
+    upsertEnvVar(envPath, "OBSIDIAN_VAULT_PATH", wizardVault);
     ok(`Vault path set from installer: ${wizardVault}`);
     return {
       configured: true,
@@ -847,9 +861,7 @@ async function configureEnv() {
       info("Non-interactive shell — initializing local vault from vault-starter/...");
       cpSync(starterDir, localVault, { recursive: true });
     }
-    const envLine = `OBSIDIAN_VAULT_PATH=${localVault}\n`;
-    const content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
-    writeFileSync(envPath, content + envLine, "utf-8");
+    upsertEnvVar(envPath, "OBSIDIAN_VAULT_PATH", localVault);
     ok(`Vault path set to local .vault/ directory`);
     return {
       configured: true,
@@ -964,10 +976,8 @@ async function configureEnv() {
     }
   }
 
-  // Append to .env (preserve any other vars)
-  const envLine = `OBSIDIAN_VAULT_PATH=${vaultPath}\n`;
-  const content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
-  writeFileSync(envPath, content + envLine, "utf-8");
+  // Set/update key in .env while preserving all other vars.
+  upsertEnvVar(envPath, "OBSIDIAN_VAULT_PATH", vaultPath);
   ok(`Saved to .env: OBSIDIAN_VAULT_PATH=${vaultPath}`);
   return {
     configured: true,
