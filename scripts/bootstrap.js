@@ -43,6 +43,8 @@ const C = {
   bold: "\x1b[1m",
 };
 
+const SUMMARY_PLACEHOLDER = "__PENDING__";
+
 function step(msg) { console.log(`\n${C.cyan}━━━ ${msg} ━━━${C.reset}`); }
 function ok(msg)   { console.log(`  ${C.green}✔ ${msg}${C.reset}`); }
 function warn(msg) { console.log(`  ${C.yellow}⚠ ${msg}${C.reset}`); }
@@ -93,6 +95,60 @@ function printInstallSummary() {
     console.log(fmt(rows[i]));
   }
   console.log(line);
+}
+
+function updateSummary(component, updates) {
+  const idx = installSummary.findIndex((x) => x.component === component);
+  if (idx === -1) return;
+  installSummary[idx] = { ...installSummary[idx], ...updates };
+}
+
+function commandOutput(cmd, args) {
+  try {
+    const r = spawnSync(cmd, args, { encoding: "utf-8" });
+    if (r.status !== 0) return null;
+    return (r.stdout || r.stderr || "").trim();
+  } catch {
+    return null;
+  }
+}
+
+function printFinalPostSummaryPanel() {
+  const aliasOk = has("lcg");
+  const account = commandOutput("az", ["account", "show", "--query", "user.name", "-o", "tsv"]);
+
+  if (aliasOk) {
+    console.log();
+    console.log("  \x1b[1m\x1b[32m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                      │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│   Run from any terminal, any directory:                     │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│       lcg                                                   │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│       lcg -p \"Who am I in MSX?\"                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,              │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│   agents, and skills — no need to cd into the repo.         │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m└─────────────────────────────────────────────────────────────┘\x1b[0m");
+    console.log();
+  } else {
+    console.log();
+    console.log("  \x1b[1m\x1b[33m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│   ⚠  'lcg' CLI was NOT installed globally.                │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│   See the instructions above to register it manually.      │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m└─────────────────────────────────────────────────────────────┘\x1b[0m");
+    console.log();
+  }
+
+  if (account) {
+    console.log(`\n  You're signed in as ${account}. Everything is ready!\n\n  Try it now:\n      lcg -p "Who am I in MSX?"\n\n  Optional — for editing skills, prompts, and tasks:\n      code .                # opens the repo in VS Code\n                            # MCP servers auto-start via .vscode/mcp.json\n                            # then open Copilot Chat (Ctrl+Alt+I)\n`);
+  } else {
+    console.log(`\n  Almost there — finish Azure sign-in, then you're ready.\n\n  Required:\n    1. Connect to Microsoft VPN\n    2. Sign in to Azure:    az login\n       Use your Microsoft account (example: alias@microsoft.com)\n       During subscription selection, press Enter to accept the default\n\n  Try it now:\n      lcg -p "Who am I in MSX?"\n\n  Optional — for editing skills, prompts, and tasks:\n      code .                # opens the repo in VS Code\n                            # MCP servers auto-start via .vscode/mcp.json\n                            # then open Copilot Chat (Ctrl+Alt+I)\n`);
+  }
 }
 
 function showWindowsUacNote() {
@@ -712,7 +768,7 @@ if (hasCode) {
   pushSummary("VS Code", "Already installed", codeStarted);
 } else {
   warn("Visual Studio Code not found — optional.");
-  pushSummary("VS Code", "Not installed (optional)", codeStarted, "Prompted later in init.js");
+  pushSummary("VS Code", CHECK_ONLY ? "Not installed (optional)" : SUMMARY_PLACEHOLDER, codeStarted, CHECK_ONLY ? "Optional" : "Prompted later in init.js");
   if (!CHECK_ONLY) {
     info("You will be prompted during environment setup before any VS Code installation starts.");
   }
@@ -765,15 +821,35 @@ if (!SKIP_INSTALL) {
 // ── Step 3: delegate to init.js ─────────────────────────────────────
 const initStarted = Date.now();
 step("Running environment initializer");
-const rc2 = run(process.execPath, [join(ROOT, "scripts", "init.js")]);
+const rc2 = run(process.execPath, [join(ROOT, "scripts", "init.js")], {
+  env: {
+    ...process.env,
+    LCG_DEFER_FINAL_REPORT: "1",
+  },
+});
 if (rc2 !== 0) {
   fail(`init.js exited with code ${rc2}`);
   pushSummary("Environment initializer", "Failed", initStarted, `Exit code ${rc2}`);
+  if (!hasCode) {
+    updateSummary("VS Code", {
+      status: hasVsCode() ? "Installed" : "Not installed (optional)",
+      note: hasVsCode() ? "Installed during init.js" : "Prompted in init.js",
+    });
+  }
   printInstallSummary();
   process.exit(rc2);
 }
 pushSummary("Environment initializer", "Completed", initStarted);
 
+if (!hasCode) {
+  const hasCodeAfterInit = hasVsCode();
+  updateSummary("VS Code", {
+    status: hasCodeAfterInit ? "Installed" : "Not installed (optional)",
+    note: hasCodeAfterInit ? "Installed during init.js" : "Prompted in init.js",
+  });
+}
+
 printInstallSummary();
+printFinalPostSummaryPanel();
 console.log(`\n${C.bold}${C.green}✔ Bootstrap complete.${C.reset}`);
 console.log(`  Next: ${C.yellow}npm run task:list${C.reset} to see available automations.`);

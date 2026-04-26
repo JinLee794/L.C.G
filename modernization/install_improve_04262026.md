@@ -129,6 +129,8 @@ Make `bootstrap.ps1` feel like a real installer the first time an executive runs
        - `bootstrap.ps1` Node install path shows a live PowerShell progress bar with elapsed time during `winget`/`choco` execution.
        - `bootstrap.js` Windows package installs (including Git and Azure CLI) show an indeterminate spinner with elapsed time.
     - `bootstrap.js` now prints an end-of-run installation summary table (component, result, duration, notes) so users can see what was already present, what got installed, and how long each step took.
+   - Final output order now shows **Installation summary first**, then the post-install success panel (`'lcg' CLI installed successfully`) and sign-in/next-step guidance.
+   - Wizard banner now includes an upfront estimated install-time table per component plus a full-stack expected range when everything is installed fresh.
 
 ---
 

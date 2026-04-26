@@ -72,7 +72,18 @@ function Show-Banner {
   Write-Host "    - Configure your Obsidian vault location"
   Write-Host "    - Wire up MCP servers and the L.C.G. CLI"
   Write-Host ""
-  Write-Host "  Estimated time: ~5 minutes." -ForegroundColor DarkGray
+  Write-Host "  Estimated install times (if missing):" -ForegroundColor White
+  Write-Host "    +----------------------+-------------------------------+"
+  Write-Host "    | Component            | Typical Time                  |"
+  Write-Host "    +----------------------+-------------------------------+"
+  Write-Host "    | Node.js              | 2-4 minutes                   |"
+  Write-Host "    | Git                  | 2-4 minutes                   |"
+  Write-Host "    | Azure CLI            | 2-5 minutes                   |"
+  Write-Host "    | GitHub Copilot CLI   | 1-3 minutes                   |"
+  Write-Host "    | Visual Studio Code   | ~3 minutes (estimated)        |"
+  Write-Host "    | Obsidian Desktop     | 1-2 minutes                   |"
+  Write-Host "    +----------------------+-------------------------------+"
+  Write-Host "  If all components are installed fresh, expect ~10-15 minutes." -ForegroundColor DarkGray
   Write-Host "  Note: Windows may show a User Account Control (UAC) prompt during installation." -ForegroundColor DarkGray
   Write-Host "  Please select 'Yes' to continue." -ForegroundColor DarkGray
   Write-Host ""

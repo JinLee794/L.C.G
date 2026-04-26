@@ -1073,6 +1073,7 @@ function runVaultSync() {
 
 // ── main ────────────────────────────────────────────────────────────
 const checkMode = process.argv.includes("--check");
+const deferFinalReport = process.env.LCG_DEFER_FINAL_REPORT === "1";
 
 if (checkMode) {
   const ok = await checkOnly();
@@ -1143,7 +1144,7 @@ if (checkMode) {
     const aliasOk = registerAlias();
     heading("All done ✔");
 
-    if (aliasOk) {
+    if (!deferFinalReport && aliasOk) {
       console.log();
       console.log("  \x1b[1m\x1b[32m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
@@ -1159,7 +1160,7 @@ if (checkMode) {
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m└─────────────────────────────────────────────────────────────┘\x1b[0m");
       console.log();
-    } else {
+    } else if (!deferFinalReport) {
       console.log();
       console.log("  \x1b[1m\x1b[33m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
@@ -1175,7 +1176,7 @@ if (checkMode) {
     // autoInstallOptional: true) — don't prompt a second time here.
     const account = tryRun("az account show --query user.name -o tsv");
 
-    if (account) {
+    if (!deferFinalReport && account) {
       console.log(`
   You're signed in as ${account}. Everything is ready!
 
@@ -1187,7 +1188,7 @@ if (checkMode) {
                             # MCP servers auto-start via .vscode/mcp.json
                             # then open Copilot Chat (Ctrl+Alt+I)
 `);
-    } else {
+    } else if (!deferFinalReport) {
       console.log(`
   Almost there — finish Azure sign-in, then you're ready.
 
