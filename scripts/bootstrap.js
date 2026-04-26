@@ -48,7 +48,52 @@ function ok(msg)   { console.log(`  ${C.green}✔ ${msg}${C.reset}`); }
 function warn(msg) { console.log(`  ${C.yellow}⚠ ${msg}${C.reset}`); }
 function fail(msg) { console.log(`  ${C.red}✖ ${msg}${C.reset}`); }
 function info(msg) { console.log(`  ${C.blue}→ ${msg}${C.reset}`); }
+const installSummary = [];
 let hasShownWindowsUacNote = false;
+
+function formatDuration(ms) {
+  const secs = Math.max(0, Math.round(ms / 1000));
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  if (mins > 0) return `${mins}m ${String(rem).padStart(2, "0")}s`;
+  return `${secs}s`;
+}
+
+function pushSummary(component, status, startedAt, note = "") {
+  installSummary.push({
+    component,
+    status,
+    duration: formatDuration(Date.now() - startedAt),
+    note,
+  });
+}
+
+function printInstallSummary() {
+  if (installSummary.length === 0) return;
+
+  const rows = [
+    ["Component", "Result", "Time", "Notes"],
+    ...installSummary.map((x) => [x.component, x.status, x.duration, x.note || "-"]),
+  ];
+  const widths = [0, 0, 0, 0];
+  for (const row of rows) {
+    row.forEach((cell, idx) => {
+      widths[idx] = Math.max(widths[idx], String(cell).length);
+    });
+  }
+
+  const line = `+${widths.map((w) => "-".repeat(w + 2)).join("+")}+`;
+  const fmt = (row) => `| ${row.map((cell, i) => String(cell).padEnd(widths[i], " ")).join(" | ")} |`;
+
+  step("Installation summary");
+  console.log(line);
+  console.log(fmt(rows[0]));
+  console.log(line);
+  for (let i = 1; i < rows.length; i++) {
+    console.log(fmt(rows[i]));
+  }
+  console.log(line);
+}
 
 function showWindowsUacNote() {
   if (!isWin || hasShownWindowsUacNote) return;
@@ -576,37 +621,52 @@ step("Checking prerequisites");
 let allGood = true;
 
 // Node
+const nodeStarted = Date.now();
 const nodeVer = process.versions.node;
 const nodeMajor = parseInt(nodeVer.split(".")[0], 10);
 if (nodeMajor >= 18) {
   ok(`Node.js v${nodeVer}`);
+  pushSummary("Node.js", "Ready", nodeStarted, `v${nodeVer}`);
 } else {
   fail(`Node.js v${nodeVer} is too old (need >= 18)`);
+  pushSummary("Node.js", "Unsupported", nodeStarted, `Detected v${nodeVer}`);
   allGood = false;
 }
 
 // npm
+const npmStarted = Date.now();
 if (has("npm")) {
-  ok(`npm ${npmVersion() || "(version unknown)"}`);
+  const npmVer = npmVersion() || "(version unknown)";
+  ok(`npm ${npmVer}`);
+  pushSummary("npm", "Ready", npmStarted, npmVer);
 } else {
   fail("npm not found");
+  pushSummary("npm", "Missing", npmStarted, "Install Node.js LTS");
   allGood = false;
 }
 
 // git
+{
+const started = Date.now();
 if (has("git")) {
   ok(version("git") || "git");
+  pushSummary("Git", "Already installed", started);
 } else if (!CHECK_ONLY && await installGit()) {
   ok(version("git") || "git");
+  pushSummary("Git", "Installed", started, "Auto-installed via package manager");
 } else {
   warn("git not found — required for repo operations");
+  pushSummary("Git", CHECK_ONLY ? "Missing" : "Not installed", started, "Manual action required");
   if (!isWin) {
     warn("  Install git: https://git-scm.com/downloads");
   }
 }
+}
 
 // Azure CLI (optional — required only by tasks that call `az`).
-let hasAz = has("az");
+const hadAzInitially = has("az");
+let hasAz = hadAzInitially;
+const azStarted = Date.now();
 if (!hasAz && !CHECK_ONLY) {
   hasAz = await installAzureCli();
 }
@@ -615,34 +675,44 @@ if (hasAz) {
   // `az version` outputs JSON; extract the azure-cli value.
   const azVer = azRaw?.match(/"azure-cli":\s*"([^"]+)"/)?.[1] || azRaw?.replace(/[{}\s]/g, "") || "Azure CLI";
   ok(`Azure CLI ${azVer}`);
+  pushSummary("Azure CLI", hadAzInitially ? "Already installed" : "Installed", azStarted, azVer);
 } else {
   warn("Azure CLI (`az`) not found — optional. Install later from https://aka.ms/installazurecliwindows if you need CRM/Azure tasks.");
+  pushSummary("Azure CLI", CHECK_ONLY ? "Missing (optional)" : "Not installed (optional)", azStarted);
 }
 
 // GitHub Copilot CLI — optional; prefer the real `copilot` binary. Fall back
 // to `gh copilot` if available. Never fatal: users can install later.
-let hasCopilot = hasRunnableCopilot();
+const hadCopilotInitially = hasRunnableCopilot() || hasGhCopilot();
+let hasCopilot = hadCopilotInitially;
+const copilotStarted = Date.now();
 if (!hasCopilot && !CHECK_ONLY) {
   hasCopilot = await installCopilotCli();
 }
 if (hasCopilot) {
   if (hasRunnableCopilot()) {
     ok("GitHub Copilot CLI available (copilot)");
+    pushSummary("Copilot CLI", hadCopilotInitially ? "Already installed" : "Installed", copilotStarted, "copilot");
   } else {
     ok("GitHub Copilot CLI available (gh copilot fallback)");
+    pushSummary("Copilot CLI", hadCopilotInitially ? "Already installed (fallback)" : "Installed (fallback)", copilotStarted, "Using gh copilot fallback");
   }
 } else {
   warn("GitHub Copilot CLI not found — optional. Install later with `npm install -g @github/copilot`.");
+  pushSummary("Copilot CLI", CHECK_ONLY ? "Missing (optional)" : "Not installed (optional)", copilotStarted);
 }
 
 // Visual Studio Code — recommended host for Copilot Chat / agent surfaces.
 // Optional (never fatal). Installation is handled interactively in init.js.
 let hasCode = hasVsCode();
+const codeStarted = Date.now();
 if (hasCode) {
   const codeVer = version("code", "--version")?.split("\n")[0] || "VS Code";
   ok(`Visual Studio Code ${codeVer}`);
+  pushSummary("VS Code", "Already installed", codeStarted);
 } else {
   warn("Visual Studio Code not found — optional.");
+  pushSummary("VS Code", "Not installed (optional)", codeStarted, "Prompted later in init.js");
   if (!CHECK_ONLY) {
     info("You will be prompted during environment setup before any VS Code installation starts.");
   }
@@ -658,37 +728,52 @@ if (has("pwsh")) {
 }
 
 if (!allGood) {
+  printInstallSummary();
   console.log(`\n${C.red}One or more critical prerequisites are missing. Fix the above and re-run.${C.reset}`);
   process.exit(1);
 }
 
 if (CHECK_ONLY) {
+  printInstallSummary();
   console.log(`\n${C.green}✔ Prereq check complete (no changes made).${C.reset}`);
   process.exit(0);
 }
 
 // ── Step 2: npm install ─────────────────────────────────────────────
 if (!SKIP_INSTALL) {
+  const depsStarted = Date.now();
   step("Installing npm dependencies");
   if (!existsSync(join(ROOT, "package.json"))) {
     fail("package.json not found — are you running this from inside the repo?");
+    pushSummary("npm dependencies", "Failed", depsStarted, "package.json missing");
+    printInstallSummary();
     process.exit(1);
   }
   const rc = npmInstall();
   if (rc !== 0) {
     fail("npm install failed");
+    pushSummary("npm dependencies", "Failed", depsStarted, `Exit code ${rc}`);
+    printInstallSummary();
     process.exit(rc);
   }
   ok("Dependencies installed");
+  pushSummary("npm dependencies", "Installed", depsStarted);
+} else {
+  pushSummary("npm dependencies", "Skipped", Date.now(), "--skip-install");
 }
 
 // ── Step 3: delegate to init.js ─────────────────────────────────────
+const initStarted = Date.now();
 step("Running environment initializer");
 const rc2 = run(process.execPath, [join(ROOT, "scripts", "init.js")]);
 if (rc2 !== 0) {
   fail(`init.js exited with code ${rc2}`);
+  pushSummary("Environment initializer", "Failed", initStarted, `Exit code ${rc2}`);
+  printInstallSummary();
   process.exit(rc2);
 }
+pushSummary("Environment initializer", "Completed", initStarted);
 
+printInstallSummary();
 console.log(`\n${C.bold}${C.green}✔ Bootstrap complete.${C.reset}`);
 console.log(`  Next: ${C.yellow}npm run task:list${C.reset} to see available automations.`);

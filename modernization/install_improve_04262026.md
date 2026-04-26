@@ -128,6 +128,7 @@ Make `bootstrap.ps1` feel like a real installer the first time an executive runs
     - Long-running package installs now show active progress feedback instead of appearing stalled:
        - `bootstrap.ps1` Node install path shows a live PowerShell progress bar with elapsed time during `winget`/`choco` execution.
        - `bootstrap.js` Windows package installs (including Git and Azure CLI) show an indeterminate spinner with elapsed time.
+    - `bootstrap.js` now prints an end-of-run installation summary table (component, result, duration, notes) so users can see what was already present, what got installed, and how long each step took.
 
 ---
 
@@ -150,6 +151,7 @@ Make `bootstrap.ps1` feel like a real installer the first time an executive runs
 | `scripts/install.ps1` | Added bootstrap preflight validation and fingerprint output (`Ref` + short SHA256) before invoking `scripts/bootstrap.ps1`. |
 | `scripts/bootstrap.js` | Added one-time professional UAC guidance before Windows package install attempts. |
 | `scripts/bootstrap.ps1` | Added live PowerShell progress bar + elapsed time for long-running Node package installs (`winget`/`choco`) so users can see active progress. |
+| `scripts/bootstrap.js` | Added final installation summary table with per-component status and elapsed time. |
 
 ---
 
