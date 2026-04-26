@@ -48,6 +48,14 @@ function ok(msg)   { console.log(`  ${C.green}✔ ${msg}${C.reset}`); }
 function warn(msg) { console.log(`  ${C.yellow}⚠ ${msg}${C.reset}`); }
 function fail(msg) { console.log(`  ${C.red}✖ ${msg}${C.reset}`); }
 function info(msg) { console.log(`  ${C.blue}→ ${msg}${C.reset}`); }
+let hasShownWindowsUacNote = false;
+
+function showWindowsUacNote() {
+  if (!isWin || hasShownWindowsUacNote) return;
+  info("Windows may show a User Account Control (UAC) prompt during installation.");
+  info("Please select 'Yes' to continue.");
+  hasShownWindowsUacNote = true;
+}
 
 function has(cmd) {
   const r = spawnSync(isWin ? "where" : "which", [cmd], { stdio: "ignore" });
@@ -154,6 +162,8 @@ function summarizeCommandOutput(result) {
 
 function installWithWingetOrChoco(wingetId, chocoPkg) {
   if (!isWin) return false;
+
+  showWindowsUacNote();
 
   if (has("winget")) {
     let rc;

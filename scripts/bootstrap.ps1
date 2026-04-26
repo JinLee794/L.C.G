@@ -34,6 +34,14 @@ function Say-Ok   ($m) { Write-Host "  [OK] $m" -ForegroundColor Green }
 function Say-Warn ($m) { Write-Host "  [WARN] $m" -ForegroundColor Yellow }
 function Say-Fail ($m) { Write-Host "  [FAIL] $m" -ForegroundColor Red }
 function Say-Info ($m) { Write-Host "  [INFO] $m" -ForegroundColor Cyan }
+$UacNoteShown = $false
+
+function Show-UacNote {
+  if ($UacNoteShown) { return }
+  Say-Info "Windows may show a User Account Control (UAC) prompt during installation."
+  Say-Info "Please select 'Yes' to continue."
+  $script:UacNoteShown = $true
+}
 
 # ------------ Wizard helpers --------------------------------------
 
@@ -65,6 +73,8 @@ function Show-Banner {
   Write-Host "    - Wire up MCP servers and the L.C.G. CLI"
   Write-Host ""
   Write-Host "  Estimated time: ~5 minutes." -ForegroundColor DarkGray
+  Write-Host "  Note: Windows may show a User Account Control (UAC) prompt during installation." -ForegroundColor DarkGray
+  Write-Host "  Please select 'Yes' to continue." -ForegroundColor DarkGray
   Write-Host ""
 }
 
@@ -349,6 +359,7 @@ function Invoke-WingetInstall {
 
 function Install-Node {
   if (Get-Command winget -ErrorAction SilentlyContinue) {
+    Show-UacNote
     Say-Info "Installing Node via winget..."
     $code = Invoke-WingetInstall -Id "OpenJS.NodeJS.LTS"
     # Don't trust the exit code alone - winget sometimes reports non-zero / null even on success.
@@ -359,6 +370,7 @@ function Install-Node {
     return
   }
   if (Get-Command choco -ErrorAction SilentlyContinue) {
+    Show-UacNote
     Say-Info "Installing Node via Chocolatey..."
     & choco install nodejs-lts -y
     return

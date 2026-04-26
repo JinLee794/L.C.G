@@ -122,6 +122,8 @@ try {
   $bootstrapHash = (Get-FileHash -Path $bootstrapPath -Algorithm SHA256).Hash
   $bootstrapHashShort = if ($bootstrapHash.Length -ge 12) { $bootstrapHash.Substring(0, 12) } else { $bootstrapHash }
   Write-Info "Bootstrap preflight: ref '$Ref', SHA256 $bootstrapHashShort"
+  Write-Info "Windows may show a User Account Control (UAC) prompt during installation."
+  Write-Info "Please select 'Yes' to continue."
 
   # Ensure execution policy allows running the bootstrap script in this process
   # (avoids hardcoding 'powershell' vs 'pwsh' and spawning a mismatched engine).

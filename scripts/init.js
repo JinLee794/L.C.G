@@ -55,6 +55,14 @@ const PREREQS = [
 
 // ── helpers ─────────────────────────────────────────────────────────
 const isWindows = process.platform === "win32";
+let hasShownWindowsUacNote = false;
+
+function showWindowsUacNote() {
+  if (!isWindows || hasShownWindowsUacNote) return;
+  info("Windows may show a User Account Control (UAC) prompt during installation.");
+  info("Please select 'Yes' to continue.");
+  hasShownWindowsUacNote = true;
+}
 
 function run(cmd, cwd) {
   execSync(cmd, {
@@ -160,8 +168,10 @@ async function ensureVsCode({ autoInstall = false } = {}) {
   info("Installing Visual Studio Code...");
 
   if (isWindows && commandExists("winget")) {
+    showWindowsUacNote();
     runBestEffort("winget install --id Microsoft.VisualStudioCode -e --accept-package-agreements --accept-source-agreements");
   } else if (isWindows && commandExists("choco")) {
+    showWindowsUacNote();
     runBestEffort("choco install vscode -y");
   } else if (process.platform === "darwin" && commandExists("brew")) {
     runBestEffort("brew install --cask visual-studio-code");
@@ -186,6 +196,7 @@ function ensureOptionalCli(name, verifyCmd, installers) {
 
   if (isWindows) {
     if (installers.wingetId && commandExists("winget")) {
+      showWindowsUacNote();
       info(`Installing ${name} via winget...`);
       const okInstall = runBestEffort(
         `winget install --id ${installers.wingetId} -e --accept-package-agreements --accept-source-agreements`
@@ -197,6 +208,7 @@ function ensureOptionalCli(name, verifyCmd, installers) {
     }
 
     if (installers.chocoPackage && commandExists("choco")) {
+      showWindowsUacNote();
       info(`Installing ${name} via Chocolatey...`);
       const okInstall = runBestEffort(`choco install ${installers.chocoPackage} -y`);
       if (okInstall && tryRun(verifyCmd)) {
@@ -286,6 +298,7 @@ async function ensureObsidianDesktop({ autoInstall = false } = {}) {
   info("Installing Obsidian Desktop...");
 
   if (isWindows && commandExists("winget")) {
+    showWindowsUacNote();
     info("Installing Obsidian via winget...");
     runBestEffort("winget install --id Obsidian.Obsidian -e --accept-package-agreements --accept-source-agreements");
   } else if (process.platform === "darwin" && commandExists("brew")) {
