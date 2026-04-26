@@ -234,7 +234,11 @@ function hasRunnableCopilot() {
         .split(/\r?\n/)
         .map((s) => s.trim())
         .filter(Boolean)
-        .filter((p) => /\.(cmd|exe)$/i.test(p))
+        .filter((p) => {
+          // Accept common Windows launchers and extensionless shims.
+          if (/\.(cmd|bat|exe)$/i.test(p)) return true;
+          return !/\.[^\\/]+$/.test(p);
+        })
     : [];
 
   // Fallback: probe the npm global prefix directly. `where` may miss it when
@@ -536,16 +540,16 @@ if (hasCopilot) {
 }
 
 // Visual Studio Code — recommended host for Copilot Chat / agent surfaces.
-// Optional (never fatal), but auto-installed when a package manager is available.
+// Optional (never fatal). Installation is handled interactively in init.js.
 let hasCode = hasVsCode();
-if (!hasCode && !CHECK_ONLY) {
-  hasCode = installVsCode();
-}
 if (hasCode) {
   const codeVer = version("code", "--version")?.split("\n")[0] || "VS Code";
   ok(`Visual Studio Code ${codeVer}`);
 } else {
-  warn("Visual Studio Code not found — optional. Install later from https://code.visualstudio.com/download.");
+  warn("Visual Studio Code not found — optional.");
+  if (!CHECK_ONLY) {
+    info("You will be prompted during environment setup before any VS Code installation starts.");
+  }
 }
 
 // pwsh (optional, only needed for setup-outlook-rules)

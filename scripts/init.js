@@ -107,6 +107,78 @@ function commandExists(cmd) {
   return Boolean(tryRun(isWindows ? `where ${cmd}` : `command -v ${cmd}`));
 }
 
+function findVsCodeDesktop() {
+  if (commandExists("code")) return true;
+
+  if (isWindows) {
+    const candidates = [
+      join(process.env.LOCALAPPDATA || "", "Programs", "Microsoft VS Code", "bin", "code.cmd"),
+      join(process.env.ProgramFiles || "", "Microsoft VS Code", "bin", "code.cmd"),
+      join(process.env["ProgramFiles(x86)"] || "", "Microsoft VS Code", "bin", "code.cmd"),
+    ].filter(Boolean);
+    return candidates.some((p) => existsSync(p));
+  }
+
+  if (process.platform === "darwin") {
+    return existsSync("/Applications/Visual Studio Code.app") || commandExists("code");
+  }
+
+  return commandExists("code");
+}
+
+function isVsCodeInstalledByWinget() {
+  if (!isWindows || !commandExists("winget")) return false;
+  const out = tryRun("winget list --id Microsoft.VisualStudioCode -e");
+  return Boolean(out && out.toLowerCase().includes("visual studio code"));
+}
+
+async function ensureVsCode({ autoInstall = false } = {}) {
+  if (findVsCodeDesktop()) {
+    const version = tryRun("code --version")?.split("\n")[0];
+    ok(`Visual Studio Code detected${version ? ` (${version})` : ""}`);
+    return true;
+  }
+
+  let shouldInstall = false;
+  if (process.stdin.isTTY) {
+    console.log();
+    console.log("  Visual Studio Code is the recommended host for Copilot Chat and L.C.G agents.");
+    console.log("  You can skip for now and install it later if you prefer.");
+    const answer = await ask("  Install Visual Studio Code now? [Y/n]: ");
+    const normalized = answer.trim().toLowerCase();
+    shouldInstall = normalized === "" || normalized === "y" || normalized === "yes";
+  } else if (autoInstall) {
+    info("Non-interactive shell detected — skipping Visual Studio Code auto-install.");
+  }
+
+  if (!shouldInstall) {
+    info("Skipping Visual Studio Code install.");
+    info("  You can install it later from https://code.visualstudio.com/download");
+    return false;
+  }
+
+  info("Installing Visual Studio Code...");
+
+  if (isWindows && commandExists("winget")) {
+    runBestEffort("winget install --id Microsoft.VisualStudioCode -e --accept-package-agreements --accept-source-agreements");
+  } else if (isWindows && commandExists("choco")) {
+    runBestEffort("choco install vscode -y");
+  } else if (process.platform === "darwin" && commandExists("brew")) {
+    runBestEffort("brew install --cask visual-studio-code");
+  } else {
+    warn("Automatic VS Code install is not available on this platform.");
+  }
+
+  if (findVsCodeDesktop() || isVsCodeInstalledByWinget()) {
+    ok("Visual Studio Code installed.");
+    return true;
+  }
+
+  warn("Visual Studio Code install did not complete automatically.");
+  warn("  Install manually: https://code.visualstudio.com/download");
+  return false;
+}
+
 function ensureOptionalCli(name, verifyCmd, installers) {
   if (tryRun(verifyCmd)) return true;
 
@@ -184,9 +256,8 @@ async function ensureObsidianDesktop({ autoInstall = false } = {}) {
     return true;
   }
 
-  // Interactive mode: ask the user whether to install. Non-interactive shells
-  // fall back to the autoInstall flag so CI/scripted runs keep working.
-  let shouldInstall = autoInstall;
+  // Interactive mode: ask the user whether to install.
+  let shouldInstall = false;
   if (process.stdin.isTTY) {
     console.log();
     console.log("  Obsidian Desktop is the recommended UI for browsing your vault");
@@ -195,6 +266,8 @@ async function ensureObsidianDesktop({ autoInstall = false } = {}) {
     const answer = await ask("  Install Obsidian Desktop now? [Y/n]: ");
     const normalized = answer.trim().toLowerCase();
     shouldInstall = normalized === "" || normalized === "y" || normalized === "yes";
+  } else if (autoInstall) {
+    info("Non-interactive shell detected — skipping Obsidian Desktop auto-install.");
   }
 
   if (!shouldInstall) {
@@ -351,6 +424,8 @@ async function checkPrereqs({ autoInstallOptional = false } = {}) {
     console.log("  \x1b[1m\x1b[31m╚══════════════════════════════════════════════════════════╝\x1b[0m");
     console.log();
   }
+
+  await ensureVsCode({ autoInstall: autoInstallOptional });
 
   await ensureObsidianDesktop({ autoInstall: autoInstallOptional });
 
@@ -723,7 +798,12 @@ async function configureEnv() {
 
   if (existing.OBSIDIAN_VAULT_PATH) {
     ok(`Vault path already configured: ${existing.OBSIDIAN_VAULT_PATH}`);
-    return;
+    return {
+      configured: true,
+      shouldSync: true,
+      mode: "existing-config",
+      vaultPath: existing.OBSIDIAN_VAULT_PATH,
+    };
   }
 
   // Skip prompt in non-interactive environments (CI, piped stdin)
@@ -738,10 +818,30 @@ async function configureEnv() {
     const content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
     writeFileSync(envPath, content + envLine, "utf-8");
     ok(`Vault path set to local .vault/ directory`);
-    return;
+    return {
+      configured: true,
+      shouldSync: true,
+      mode: "local",
+      vaultPath: localVault,
+    };
   }
 
   heading("Obsidian Vault Configuration");
+  const enableVault = await ask("  Set up an Obsidian vault now? [Y/n]: ");
+  const normalizedEnable = enableVault.trim().toLowerCase();
+  const shouldConfigureVault =
+    normalizedEnable === "" || normalizedEnable === "y" || normalizedEnable === "yes";
+  if (!shouldConfigureVault) {
+    info("Skipping vault setup for now.");
+    info("Run 'npm run vault:init' later after setting OBSIDIAN_VAULT_PATH in .env.");
+    return {
+      configured: false,
+      shouldSync: false,
+      mode: "skipped",
+      vaultPath: null,
+    };
+  }
+
   const localVault = join(ROOT, ".vault");
   const starterDir = join(ROOT, "vault-starter");
 
@@ -773,6 +873,7 @@ async function configureEnv() {
   }
 
   let vaultPath = localVault;
+  let mode = "local";
 
   if (choice === "1") {
     if (!existsSync(localVault) && existsSync(starterDir)) {
@@ -782,16 +883,19 @@ async function configureEnv() {
     } else if (existsSync(localVault)) {
       ok(`Local vault already exists at ${localVault}`);
     }
+    mode = "local";
   } else if (choice === "2") {
     const raw = (await ask("  New vault path: ")).trim().replace(/^["']|["']$/g, "");
     if (!raw) {
       warn("No path provided — falling back to local .vault/.");
       vaultPath = localVault;
+      mode = "local";
       if (!existsSync(localVault) && existsSync(starterDir)) {
         cpSync(starterDir, localVault, { recursive: true });
       }
     } else {
       vaultPath = resolve(raw);
+      mode = "new";
       if (!existsSync(vaultPath)) {
         info(`Creating new vault at ${vaultPath}`);
         mkdirSync(vaultPath, { recursive: true });
@@ -808,19 +912,21 @@ async function configureEnv() {
     if (!raw) {
       warn("No path provided — falling back to local .vault/.");
       vaultPath = localVault;
+      mode = "local";
       if (!existsSync(localVault) && existsSync(starterDir)) {
         cpSync(starterDir, localVault, { recursive: true });
       }
     } else {
       vaultPath = resolve(raw);
+      mode = "existing";
       if (!existsSync(vaultPath)) {
         warn(`Path does not exist: ${vaultPath}`);
         warn("Saving anyway — create the vault before starting OIL,");
         warn("or re-run 'npm run vault:init' after creating it.");
+        mode = "new";
       } else {
         ok(`Using existing vault at ${vaultPath}`);
-        info("Starter templates (_lcg/, Daily/, Meetings/, …) will be seeded next");
-        info("without overwriting any existing files.");
+        info("Will update .env to point to your existing vault.");
       }
     }
   }
@@ -830,6 +936,12 @@ async function configureEnv() {
   const content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
   writeFileSync(envPath, content + envLine, "utf-8");
   ok(`Saved to .env: OBSIDIAN_VAULT_PATH=${vaultPath}`);
+  return {
+    configured: true,
+    shouldSync: mode !== "existing",
+    mode,
+    vaultPath,
+  };
 }
 
 // ── vault sync ──────────────────────────────────────────────────────
@@ -962,8 +1074,16 @@ if (checkMode) {
       warn("Or open Copilot Chat (Cmd+Shift+I) and ask: 'Help me debug my MCP package auth setup'");
     }
 
-    await configureEnv();
-    runVaultSync();
+    const vaultConfig = await configureEnv();
+    if (vaultConfig?.shouldSync) {
+      runVaultSync();
+    } else if (vaultConfig?.mode === "existing") {
+      heading("Vault scaffold & sync");
+      info("Using existing vault path from .env; skipped scaffold/sync by request.");
+    } else if (vaultConfig?.mode === "skipped") {
+      heading("Vault scaffold & sync");
+      info("Skipped because vault setup was declined.");
+    }
     const aliasOk = registerAlias();
     heading("All done ✔");
 
