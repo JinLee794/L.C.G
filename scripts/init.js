@@ -256,6 +256,13 @@ async function ensureObsidianDesktop({ autoInstall = false } = {}) {
     return true;
   }
 
+  // Wizard already asked the user — honor their choice.
+  if (process.env.LCG_SKIP_OBSIDIAN_INSTALL === "1") {
+    info("Obsidian Desktop install skipped (per wizard choice).");
+    info("  You can install it later from https://obsidian.md/download");
+    return false;
+  }
+
   // Interactive mode: ask the user whether to install.
   let shouldInstall = false;
   if (process.stdin.isTTY) {
@@ -350,6 +357,10 @@ async function checkPrereqs({ autoInstallOptional = false } = {}) {
     let account = tryRun("az account show --query user.name -o tsv");
     if (account) {
       ok(`Signed in as ${account}`);
+    } else if (process.env.LCG_AZ_AUTH_DONE === "1") {
+      // The PS1 wizard already attempted silent sign-in (WAM broker) and
+      // surfaced its result to the user. Don't double-prompt here.
+      info("Azure sign-in not active in this Node session — open a new shell and run 'az login' if needed.");
     } else if (autoInstallOptional && process.stdin.isTTY) {
       // Offer sign-in immediately after install — the Azure CLI context is
       // fresh in the user's terminal, and a cached token here means the rest
@@ -800,6 +811,31 @@ async function configureEnv() {
       shouldSync: true,
       mode: "existing-config",
       vaultPath: existing.OBSIDIAN_VAULT_PATH,
+    };
+  }
+
+  // Wizard short-circuit: if the PS1 installer already collected the vault
+  // choice, persist it to .env without re-prompting.
+  if (process.env.LCG_VAULT_PATH) {
+    const wizardVault = resolve(process.env.LCG_VAULT_PATH);
+    const starterDir = join(ROOT, "vault-starter");
+    if (!existsSync(wizardVault)) {
+      info(`Creating vault at ${wizardVault}`);
+      mkdirSync(wizardVault, { recursive: true });
+      if (existsSync(starterDir)) {
+        info("Seeding vault-starter/ into the new vault...");
+        cpSync(starterDir, wizardVault, { recursive: true });
+      }
+    }
+    const envLine = `OBSIDIAN_VAULT_PATH=${wizardVault}\n`;
+    const content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
+    writeFileSync(envPath, content + envLine, "utf-8");
+    ok(`Vault path set from installer: ${wizardVault}`);
+    return {
+      configured: true,
+      shouldSync: process.env.LCG_VAULT_MODE !== "existing",
+      mode: process.env.LCG_VAULT_MODE || "wizard",
+      vaultPath: wizardVault,
     };
   }
 
