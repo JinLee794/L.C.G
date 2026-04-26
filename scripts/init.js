@@ -401,11 +401,9 @@ async function checkPrereqs({ autoInstallOptional = false } = {}) {
     if (ghStatus && ghStatus.includes("read:packages")) {
       ok("GitHub Packages auth available via GitHub CLI");
     } else if (ghStatus) {
-      warn("GitHub CLI is signed in, but no account with read:packages was detected.");
-      warn("  Run: npm run auth:packages");
+      info("GitHub sign-in detected — package access will be set up in the next step.");
     } else {
-      warn("GitHub CLI installed but not signed in.");
-      warn("  Run: npm run auth:packages");
+      info("GitHub sign-in pending — you'll be prompted in the next step.");
     }
   } else {
     console.log();
@@ -441,7 +439,6 @@ function initServers() {
       console.log(`    ${server.note}`);
     }
   }
-  console.log("    Private GitHub Packages can be bootstrapped with: npm run auth:packages");
 
   return true;
 }
