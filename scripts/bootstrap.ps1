@@ -35,7 +35,7 @@ function Say-Warn ($m) { Write-Host "  [WARN] $m" -ForegroundColor Yellow }
 function Say-Fail ($m) { Write-Host "  [FAIL] $m" -ForegroundColor Red }
 function Say-Info ($m) { Write-Host "  [INFO] $m" -ForegroundColor Cyan }
 
-# ───────────── Wizard helpers ─────────────────────────────────────
+# ------------ Wizard helpers --------------------------------------
 
 function Test-Interactive {
   # Wizard is skipped if -Silent, if stdin is redirected (piped script),
@@ -155,7 +155,7 @@ function Read-YesNo {
 function Invoke-SilentAzLogin {
   # Pre-condition: Entra-joined Windows + @microsoft.com user (locked audience).
   if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-    Say-Info "Azure CLI not installed yet — skipping silent sign-in (will retry after install)."
+    Say-Info "Azure CLI not installed yet - skipping silent sign-in (will retry after install)."
     return $false
   }
 
@@ -176,7 +176,7 @@ function Invoke-SilentAzLogin {
     return $true
   }
 
-  Say-Warn "Silent Azure sign-in did not complete — you can run 'az login' later."
+  Say-Warn "Silent Azure sign-in did not complete - you can run 'az login' later."
   return $false
 }
 
@@ -189,7 +189,7 @@ function Invoke-Wizard {
     exit 0
   }
 
-  # ─── Obsidian section ─────────────────────────────────────────
+  # --- Obsidian section ------------------------------------------
   Write-Host ""
   Write-Host "  --- Obsidian ---" -ForegroundColor DarkCyan
   $obsidian = Find-ObsidianInstall
@@ -205,7 +205,7 @@ function Invoke-Wizard {
     }
   }
 
-  # ─── Vault selection ─────────────────────────────────────────
+  # --- Vault selection -------------------------------------------
   Write-Host ""
   Write-Host "  --- Vault location ---" -ForegroundColor DarkCyan
 
@@ -279,7 +279,7 @@ function Invoke-Wizard {
     }
   }
 
-  # ─── Summary & confirm ─────────────────────────────────────
+  # --- Summary & confirm -----------------------------------------
   Write-Host ""
   Write-Host "  --- Review your choices ---" -ForegroundColor DarkCyan
   Write-Host "    Vault:    $vaultPath"
