@@ -62,7 +62,7 @@ function Show-Banner {
   Write-Host "    - Install Node.js, Azure CLI, GitHub CLI, VS Code, Obsidian (as needed)"
   Write-Host "    - Sign you in to Azure silently using your Windows account"
   Write-Host "    - Configure your Obsidian vault location"
-  Write-Host "    - Wire up MCP servers and the lcg CLI"
+  Write-Host "    - Wire up MCP servers and the L.C.G. CLI"
   Write-Host ""
   Write-Host "  Estimated time: ~5 minutes." -ForegroundColor DarkGray
   Write-Host ""
