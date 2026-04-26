@@ -331,14 +331,56 @@ function Wait-MsiIdle {
 
 function Invoke-WingetInstall {
   param([string]$Id, [int]$MaxAttempts = 4)
+
+  function Invoke-InstallProcessWithProgress {
+    param(
+      [string]$FilePath,
+      [string[]]$Arguments,
+      [string]$Activity
+    )
+
+    $outFile = Join-Path ([System.IO.Path]::GetTempPath()) ("lcg-install-" + [Guid]::NewGuid().ToString() + ".out")
+    $errFile = Join-Path ([System.IO.Path]::GetTempPath()) ("lcg-install-" + [Guid]::NewGuid().ToString() + ".err")
+
+    try {
+      $p = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+      $started = Get-Date
+
+      while (-not $p.HasExited) {
+        $elapsed = [int]((Get-Date) - $started).TotalSeconds
+        # Installer tools do not expose reliable percentage in silent mode; keep
+        # a moving bar + elapsed time so users can see active progress.
+        $pct = $elapsed % 100
+        Write-Progress -Activity $Activity -Status ("Still running... {0}s elapsed" -f $elapsed) -PercentComplete $pct
+        Start-Sleep -Seconds 1
+        $p.Refresh()
+      }
+
+      Write-Progress -Activity $Activity -Completed
+
+      $stdout = if (Test-Path $outFile) { Get-Content -LiteralPath $outFile -Raw } else { "" }
+      $stderr = if (Test-Path $errFile) { Get-Content -LiteralPath $errFile -Raw } else { "" }
+      return [pscustomobject]@{
+        ExitCode = $p.ExitCode
+        StdOut   = $stdout
+        StdErr   = $stderr
+      }
+    }
+    finally {
+      if (Test-Path $outFile) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }
+      if (Test-Path $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
+    }
+  }
+
   # Codes that indicate "another MSI is in progress" (1618 and winget hex variants).
   $busyCodes = @(1618, -1978335006, -1978334974)
   for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     Wait-MsiIdle | Out-Null
-    $output = @(& winget install --id $Id --silent --accept-package-agreements --accept-source-agreements 2>&1)
+    $result = Invoke-InstallProcessWithProgress -FilePath "winget" -Arguments @("install", "--id", $Id, "--silent", "--accept-package-agreements", "--accept-source-agreements") -Activity ("Installing {0} via winget" -f $Id)
+    $output = @($result.StdOut, $result.StdErr)
     # Coerce $LASTEXITCODE to int; winget can leave it null or as a non-numeric string
     # in some edge cases (which would otherwise look like a non-zero failure below).
-    $raw = $LASTEXITCODE
+    $raw = $result.ExitCode
     $code = 0
     if ($null -ne $raw -and -not [int]::TryParse([string]$raw, [ref]$code)) { $code = -1 }
     elseif ($null -ne $raw) { $code = [int]$raw }
@@ -361,6 +403,7 @@ function Install-Node {
   if (Get-Command winget -ErrorAction SilentlyContinue) {
     Show-UacNote
     Say-Info "Installing Node via winget..."
+    Say-Info "This can take a few minutes. A progress bar will be shown while installation runs."
     $code = Invoke-WingetInstall -Id "OpenJS.NodeJS.LTS"
     # Don't trust the exit code alone - winget sometimes reports non-zero / null even on success.
     # The caller verifies via Test-Node; just emit a soft warning here so the log is honest.
@@ -372,7 +415,31 @@ function Install-Node {
   if (Get-Command choco -ErrorAction SilentlyContinue) {
     Show-UacNote
     Say-Info "Installing Node via Chocolatey..."
-    & choco install nodejs-lts -y
+    Say-Info "This can take a few minutes. A progress bar will be shown while installation runs."
+    $chocoArgs = @("install", "nodejs-lts", "-y")
+    $chocoOut = Join-Path ([System.IO.Path]::GetTempPath()) ("lcg-choco-" + [Guid]::NewGuid().ToString() + ".out")
+    $chocoErr = Join-Path ([System.IO.Path]::GetTempPath()) ("lcg-choco-" + [Guid]::NewGuid().ToString() + ".err")
+    try {
+      $p = Start-Process -FilePath "choco" -ArgumentList $chocoArgs -NoNewWindow -PassThru -RedirectStandardOutput $chocoOut -RedirectStandardError $chocoErr
+      $started = Get-Date
+      while (-not $p.HasExited) {
+        $elapsed = [int]((Get-Date) - $started).TotalSeconds
+        $pct = $elapsed % 100
+        Write-Progress -Activity "Installing Node via Chocolatey" -Status ("Still running... {0}s elapsed" -f $elapsed) -PercentComplete $pct
+        Start-Sleep -Seconds 1
+        $p.Refresh()
+      }
+      Write-Progress -Activity "Installing Node via Chocolatey" -Completed
+      if ($p.ExitCode -ne 0) {
+        $errText = if (Test-Path $chocoErr) { (Get-Content -LiteralPath $chocoErr -Raw).Trim() } else { "" }
+        if ($errText) { Say-Warn "choco: $errText" }
+        throw "Chocolatey failed to install Node (exit $($p.ExitCode))."
+      }
+    }
+    finally {
+      if (Test-Path $chocoOut) { Remove-Item -LiteralPath $chocoOut -Force -ErrorAction SilentlyContinue }
+      if (Test-Path $chocoErr) { Remove-Item -LiteralPath $chocoErr -Force -ErrorAction SilentlyContinue }
+    }
     return
   }
   Say-Fail "Neither winget nor Chocolatey found."

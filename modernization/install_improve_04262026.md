@@ -125,6 +125,9 @@ Make `bootstrap.ps1` feel like a real installer the first time an executive runs
    - Post-handoff silent Azure sign-in now runs only when Node handoff exits successfully.
    - `install.ps1` now prints a bootstrap preflight line (`ref` + short SHA256 of downloaded `scripts/bootstrap.ps1`) before execution, making branch/snapshot mismatches visible during remote install tests.
    - UAC guidance is now consistently shown across Windows install entry points (`install.ps1`, `bootstrap.ps1`, `bootstrap.js`, `init.js`) before package installs that may trigger elevation.
+    - Long-running package installs now show active progress feedback instead of appearing stalled:
+       - `bootstrap.ps1` Node install path shows a live PowerShell progress bar with elapsed time during `winget`/`choco` execution.
+       - `bootstrap.js` Windows package installs (including Git and Azure CLI) show an indeterminate spinner with elapsed time.
 
 ---
 
@@ -146,6 +149,7 @@ Make `bootstrap.ps1` feel like a real installer the first time an executive runs
 | `scripts/init.js` | Added `.env` `upsertEnvVar` helper and switched vault path persistence to replace-or-add semantics (prevents duplicate `OBSIDIAN_VAULT_PATH` entries and malformed newline joins). |
 | `scripts/install.ps1` | Added bootstrap preflight validation and fingerprint output (`Ref` + short SHA256) before invoking `scripts/bootstrap.ps1`. |
 | `scripts/bootstrap.js` | Added one-time professional UAC guidance before Windows package install attempts. |
+| `scripts/bootstrap.ps1` | Added live PowerShell progress bar + elapsed time for long-running Node package installs (`winget`/`choco`) so users can see active progress. |
 
 ---
 
