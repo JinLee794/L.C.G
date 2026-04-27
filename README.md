@@ -77,21 +77,21 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ![Review your choices — proceed Y](image/README/7.jpg)
 
-**8. Let it install the small stuff.** git, Node.js, Azure CLI, and GitHub CLI are downloaded via `winget`. Times shown live (e.g. "91s elapsed").
+**8. Watch for UAC prompts — don't walk away.** The installer now downloads git, Node.js, Azure CLI, and GitHub CLI via `winget`. Each one triggers a **User Account Control** pop‑up that you have to click **Yes** on. The taskbar UAC shield will blink — if you miss it, the installer just sits there waiting forever. Keep an eye on it for the next minute or two (you'll see live elapsed time, e.g. "91s elapsed").
 
 ![Tools installing via winget](image/README/8.jpg)
 
-**9. Click "Yes" on any UAC prompt.** Windows asks before installing each tool. The User Account Control shield blinks in the taskbar — click it and approve.
+**9. Click "Yes" on the UAC prompt.** Same idea — every tool installer asks for admin rights. Approve each one as it pops up.
 
 ![UAC prompt for Git installer](image/README/9.jpg)
 
-**10. Read the security notice and type `Yes`.** Before MCP servers are wired up, the installer shows what they can and can't do. Anything other than `yes` cancels the install.
+**10. Another UAC prompt — this time for Azure CLI.** After git and Node.js, the installer moves on to **Microsoft Azure CLI**. Watch the taskbar for the blinking shield and click **Yes** again. The Azure CLI install is the slowest of the bunch — give it a minute or two.
 
-![Risk acknowledgement — type yes](image/README/10.jpg)
+![Azure CLI installing — UAC shield in taskbar](image/README/10.jpg)
 
-**11. GitHub CLI installs (and you can peek at your install folder).** While `winget` finishes installing GitHub CLI, the L.C.G. folder appears at the path you picked — you can open File Explorer and verify it landed there.
+**11. Yet another UAC prompt — for GitHub CLI.** Installation continues with **GitHub CLI**. Same drill: blinking shield in the taskbar → click **Yes**. (Bonus: at this point your L.C.G. folder is already on disk — feel free to peek at it in File Explorer while you wait.)
 
-![GitHub CLI installing — folder created in File Explorer](image/README/11.jpg)
+![GitHub CLI installing — second UAC prompt](image/README/11.jpg)
 
 **12. Run `az login`? Type `Y` and press Enter.** This is the **Azure CLI sign‑in to the Microsoft tenant** — how L.C.G. talks to CRM, Power BI, and other Microsoft systems.
 
@@ -123,7 +123,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ![Obsidian installed + MCP security notice](image/README/17.jpg)
 
-**18. GitHub Packages auth begins — pick `HTTPS`.** L.C.G. needs GitHub access to pull private MCP server packages (`@microsoft/msx-mcp-server`, `@jinlee794/obsidian-intelligence-layer`). Use arrow keys to highlight **HTTPS**, press Enter.
+**18. GitHub auth begins — pick `HTTPS`.** Use arrow keys to highlight **HTTPS**, press Enter.
 
 > [!IMPORTANT]
 > The yellow box on screen tells you exactly what to do next: **Use your PERSONAL GitHub account** (for example `lvolkov@outlook.com`). **Do NOT** use your `_microsoft` Enterprise Managed User account — it can't see the private packages L.C.G. needs.
@@ -142,47 +142,45 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ![Device Activation — confirm personal account](image/README/21.jpg)
 
-**22. Wait while npm dependencies install.** No clicks needed — `npm install` pulls everything else.
+**22. Pass GitHub two‑factor authentication.** GitHub asks for your second factor — pick **Use passkey**, **SMS Code**, or **More options** (whatever you normally use for `lvolkov@outlook.com`).
 
-![npm install progress](image/README/22.jpg)
+![GitHub two-factor authentication](image/README/22.jpg)
 
-**23. Authorize the Microsoft org (SSO).** GitHub asks you to authorize SSO so the installer can read Microsoft's private packages. Click **Authorize** next to **Microsoft**.
+**23. Continue with your personal GitHub account.** The page shows *Signed in as `lenvolk`* (or your handle). Click the green **Continue** button.
 
-![Single sign-on — Authorize Microsoft](image/README/23.jpg)
+![Device Activation — Continue with personal account](image/README/23.jpg)
 
-**24. Authorize the GitHub CLI device.** Final browser step — click the green **Authorize github** button.
+**24. Authorize the Microsoft org (SSO).** GitHub now asks for single sign‑on so the installer can read Microsoft's private packages. Click **Authorize** next to **Microsoft**.
 
-![Authorize GitHub CLI](image/README/24.jpg)
+![Single sign-on — Authorize Microsoft](image/README/24.jpg)
 
-**25. Bootstrap complete.** You'll see an installation summary table, then the green "`lcg` CLI installed successfully" panel, then your prompt is back. The `lcg` command is now globally available.
+**25. Final GitHub authorization — click `Authorize github`.** Last browser step. Review the requested scopes (download packages, read org membership, etc.), then click the green **Authorize github** button.
 
-![Installation summary + bootstrap complete](image/README/25.jpg)
+![Authorize GitHub CLI — final step](image/README/25.jpg)
 
-**26. (Optional) Open VS Code.** If you installed VS Code, type `code .` from the install folder. MCP servers auto‑start from `.vscode/mcp.json`.
-
-![Opening VS Code from terminal](image/README/26.jpg)
-
-That's it — installation is done.
+That's it — installation is done. The terminal will print an installation summary table and the green "`lcg` CLI installed successfully" panel.
 
 ---
 
 ### Step 1: Start Using L.C.G.
 
-Two ways to use it. Pick whichever feels comfortable — same agents, same skills, same brain.
+Let's drive it from the **terminal** first using the **GitHub Copilot CLI** — no editor required.
 
-**⌨️ In any terminal, type `lcg` and press Enter.** A new GitHub Copilot CLI session launches. The first time it asks **Confirm folder trust** — pick **Yes**.
+**1. Type `lcg` and press Enter.** Bootstrap is complete and your prompt is back. From any terminal, anywhere on disk, just type `lcg`.
 
-![lcg launches Copilot CLI — confirm folder trust](image/README/27.jpg)
+![lcg command in terminal — bootstrap complete](image/README/26.jpg)
 
-Once trusted, you'll see *"Environment loaded: 7 custom instructions, 43 skills"* — that's L.C.G. ready to go. Just type what you want in plain English.
+**2. Confirm folder trust — pick `1. Yes`.** First launch only. Copilot CLI asks if it can read files in the current folder (your L.C.G. install). Since you just created this folder yourself, it's safe to trust — pick **Yes** and press Enter. (Choose option **2** if you want to remember this folder for future sessions.)
+
+![Confirm folder trust — Yes](image/README/27.jpg)
+
+**3. You're in.** You'll see *"Environment loaded: 7 custom instructions, 43 skills"* — that's L.C.G. fully wired up. Type what you want in plain English (e.g. *"i want to see my report in a pink color, make it very presentable"*).
 
 ![Copilot CLI ready — start typing](image/README/28.jpg)
 
-**🖥️ In VS Code (only if you installed it):**
+**🖥️ Prefer VS Code?** Only if you installed it at Step 15: open the L.C.G. folder, hit `Ctrl+Alt+I` (Windows) / `⌃⌘I` (macOS), pick the **Chief of Staff** agent, and start typing. Same brain, same skills.
 
-Open the L.C.G. folder → open **Copilot Chat** (`Ctrl+Alt+I` on Windows, `⌃⌘I` on macOS) → pick the **Chief of Staff** agent → start typing.
-
-> Both interfaces are equivalent. See [Two Ways to Use L.C.G.](#two-ways-to-use-lcg) for details.
+> See [Two Ways to Use L.C.G.](#two-ways-to-use-lcg) for the full comparison.
 
 ---
 
