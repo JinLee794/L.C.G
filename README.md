@@ -43,7 +43,15 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 
 #### Windows — step by step
 
+Open **Windows PowerShell** (Start → type "PowerShell" → **Windows PowerShell**), paste, press **Enter**:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)"; & ([scriptblock]::Create($s)) -Ref lv-installation
+```
+
 > 💡 **Two things are optional.** When the installer asks about **VS Code** or **Obsidian Desktop**, type `Y` or `N` — *either is fine*. Both are explained at the relevant step below.
+
+> ▶ **Tip:** watch the demo video below, then follow the numbered screenshots starting at Step 1.
 
 ## Demo Video
 
