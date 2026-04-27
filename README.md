@@ -43,72 +43,126 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 
 #### Windows — step by step
 
-**1. Open Windows PowerShell.** Click Start, type "PowerShell", and pick **Windows PowerShell**. Not the blue ISE one — the regular one.
+> 💡 **Two things are optional.** When the installer asks about **VS Code** or **Obsidian Desktop**, type `Y` or `N` — *either is fine*. Both are explained at the relevant step below.
 
-![Open Windows PowerShell](image/README/1.jpg)
+**1. Open Windows PowerShell.** Click Start, type "PowerShell", and pick **Windows PowerShell** (the regular one — not the blue ISE).
 
-**2. Paste the one‑liner and press Enter.**
+![Open Windows PowerShell from Start](image/README/1.jpg)
+
+**2. Paste the one‑liner and press Enter.** Right‑click in the PowerShell window to paste.
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)"; & ([scriptblock]::Create($s)) -Ref lv-installation
 ```
 
-You'll see the L.C.G. banner with a time estimate for each component. That's the installer saying "hi, here's the plan."
+![Paste the one-liner](image/README/2.jpg)
+
+**3. Read the L.C.G. banner.** This is the installer saying hi — it lists each component and roughly how long it will take.
 
 ![L.C.G. banner with time estimates](image/README/3.jpg)
 
-**3. Pick where L.C.G. lives.** It suggests `C:\Users\<you>\L.C.G`. Press **Enter** to accept.
+**4. Press Enter to begin.** The installer confirms it's ready to start.
 
-> 🔒 OneDrive / Dropbox / Google Drive / iCloud paths are blocked on purpose — secrets stay off the cloud.
+![Press Enter to begin](image/README/4.jpg)
+
+**5. Pick where L.C.G. lives.** Default is `C:\Users\<you>\L.C.G`. Press **Enter** to accept, or type a different path. OneDrive / Dropbox / Google Drive / iCloud are blocked on purpose — secrets stay off the cloud.
 
 ![Install directory prompt](image/README/5.jpg)
 
-**4. Read the security notice and type `yes`.** This confirms you're OK with installing local MCP servers. Anything else cancels the install.
+**6. Pick where the Obsidian vault lives.** You can keep it inside the L.C.G. folder, point at an existing vault, or pick a custom folder (in this example: `c:\temp\obsidian-vault`).
 
-![Risk acknowledgement — type yes](image/README/6.jpg)
+![Vault location prompt](image/README/6.jpg)
 
-**5. Let it install the small stuff** (git, Node.js, Azure CLI, GitHub CLI). The progress bar tells you it's working — sometimes winget takes a minute, that's normal.
+**7. Review your choices and press `Y` to proceed.** The installer prints a recap (install dir, vault path, Obsidian Y/N, Azure mode) and waits for one final confirmation.
+
+![Review your choices — proceed Y](image/README/7.jpg)
+
+**8. Let it install the small stuff.** git, Node.js, Azure CLI, and GitHub CLI are downloaded via `winget`. Times shown live (e.g. "91s elapsed").
 
 ![Tools installing via winget](image/README/8.jpg)
 
-**6. Sign in to Azure with your *work* account.** A browser window opens. Pick `your-alias@microsoft.com`. This is the **Azure CLI sign‑in to the Microsoft tenant** — it's how L.C.G. talks to CRM, Power BI, and other Microsoft systems.
+**9. Click "Yes" on any UAC prompt.** Windows asks before installing each tool. The User Account Control shield blinks in the taskbar — click it and approve.
 
-![Azure sign-in — choose your @microsoft.com account](image/README/11.jpg)
+![UAC prompt for Git installer](image/README/9.jpg)
 
-**7. Sign in to GitHub with your *personal* account.** The installer prints a one‑time code (e.g. `F7A5‑ADE0`) and opens `github.com/login/device`. Paste the code, then sign in.
+**10. Read the security notice and type `Yes`.** Before MCP servers are wired up, the installer shows what they can and can't do. Anything other than `yes` cancels the install.
+
+![Risk acknowledgement — type yes](image/README/10.jpg)
+
+**11. Sign in to Azure with your *work* account.** A browser pop‑up appears. Pick `your-alias@microsoft.com`. This is the **Azure CLI sign‑in to the Microsoft tenant** — it's how L.C.G. talks to CRM, Power BI, and other Microsoft systems.
+
+![Azure sign-in — pick your @microsoft.com account](image/README/11.jpg)
+
+**12. Subscription picker — just press Enter.** Accepts the default tenant/subscription.
+
+![Subscription/tenant prompt](image/README/12.jpg)
+
+**13. GitHub auth begins.** Pick **HTTPS** at the protocol prompt, **Yes** to authenticate Git. The installer prints a one‑time code (e.g. `23F2‑0D5E`) and waits.
+
+![GitHub one-time code](image/README/13.jpg)
+
+**14. Press Enter to open `github.com/login/device`.** Your browser opens — copy the code from the terminal, paste it on the page.
+
+![Open the device login URL](image/README/14.jpg)
+
+**15. Optional — install VS Code?** Type `Y` or `N`.
+
+- **`Y`** if you want a graphical editor with **Copilot Chat** + the **Chief of Staff** agent built in.
+- **`N`** if you'd rather live in the terminal. The global `lcg` command (powered by GitHub Copilot CLI) gives you the full experience without ever opening an editor.
+
+![Install Visual Studio Code — Y or N](image/README/15_optional_Y.jpg)
+
+**16. Optional — install Obsidian Desktop?** Type `Y` or `N`.
+
+- **`Y`** if you want a pretty UI for your vault. Obsidian is *like OneNote, but for an LLM* — your customer notes, meetings, and drafts shown as a connected knowledge graph.
+- **`N`** if you'd rather just browse the files in **Windows Explorer**. Everything is plain Markdown, nothing breaks.
+
+![Install Obsidian Desktop — Y or N](image/README/16_optional_Y.jpg)
+
+**17. Obsidian installs (if you said Y), then the MCP security notice repeats.** Type `yes` again to continue.
+
+![Obsidian installed + MCP notice](image/README/17.jpg)
+
+**18. The installer registers MCP servers.** `msx-crm` (CRM) and `oil` (Obsidian Intelligence Layer) are pulled from GitHub Packages — that's why GitHub auth is required.
+
+![Package-based MCP servers + GitHub Packages auth](image/README/18.jpg)
+
+**19. Vault is scaffolded.** Starter templates land under `_lcg/` in your vault.
+
+![Vault scaffolding](image/README/19.jpg)
+
+**20. GitHub Packages auth — sign in with your *personal* account.** A new one‑time code is shown; press Enter to open the browser.
 
 > [!IMPORTANT]
-> Use your **personal GitHub account** (for example `lvolkov@outlook.com`). **Do NOT** use your `_microsoft` Enterprise Managed User account — it doesn't have access to the private packages L.C.G. needs.
->
-> If the browser auto‑fills the `_microsoft` account, click **Use a different account**.
+> Use your **personal GitHub account** (for example `lvolkov@outlook.com`). **Do NOT** use your `_microsoft` Enterprise Managed User account — it can't see the private packages L.C.G. needs.
 
-![GitHub device code](image/README/13.jpg)
-![GitHub personal account sign-in](image/README/14.jpg)
+![GitHub Packages — one-time code](image/README/20.jpg)
 
-**8. Optional: install Obsidian Desktop?** Type `Y` or `N` — **either is fine**.
+**21. Confirm the personal account in the browser.** Click **Continue** next to the right account name (e.g. `lenvolk`). If the page auto‑fills your `_microsoft` account, click **Use a different account** first.
 
-- **Type `Y`** if you want a pretty UI. Obsidian is *like OneNote, but for an LLM* — it shows your customer notes, meetings, and drafts as a connected knowledge graph.
-- **Type `N`** if you'd rather just browse the files in Windows Explorer. Everything is plain Markdown. Nothing breaks either way.
+![Device Activation — confirm personal account](image/README/21.jpg)
 
-![Obsidian Desktop — Y or N](image/README/15_optional_Y.jpg)
+**22. Wait while npm dependencies install.** No clicks needed.
 
-**9. Optional: install VS Code?** Type `Y` or `N` — **also up to you**.
+![npm install progress](image/README/22.jpg)
 
-- **Type `Y`** if you like a graphical editor and want to use Copilot Chat with the **Chief of Staff** agent inside VS Code.
-- **Type `N`** if you prefer to live in the terminal. You'll still get the global `lcg` command (powered by the GitHub Copilot CLI) and can do everything from there.
+**23. Authorize the Microsoft org.** GitHub asks for SSO into each Microsoft org so the installer can pull private packages. Click **Authorize** next to **Microsoft**.
 
-![VS Code — Y or N](image/README/16_optional_Y.jpg)
+![Single sign-on — Authorize Microsoft](image/README/23.jpg)
 
-**10. Pick where the vault lives.** Press **Enter** to put it inside the L.C.G. folder (recommended). Or type a path to an existing Obsidian vault — starter templates are added without touching your notes.
+**24. Authorize the GitHub CLI device.** Final browser step — click the green **Authorize github** button.
 
-![Vault location prompt](image/README/19.jpg)
+![Authorize GitHub CLI](image/README/24.jpg)
 
-**11. Wait for the green check.** The installer scaffolds the vault, links the global `lcg` command, and prints a summary table.
+**25. Bootstrap complete.** You'll see an installation summary table, then the green "`lcg` CLI installed successfully" panel, then the prompt is back. The `lcg` command is now globally available.
 
-![Installation summary table](image/README/24.jpg)
-![Bootstrap complete](image/README/25.jpg)
+![Installation summary + bootstrap complete](image/README/25.jpg)
 
-That's it. You're done.
+**26. (Optional) Open VS Code.** If you installed VS Code, type `code .` from the install folder to open it. MCP servers auto‑start from `.vscode/mcp.json`.
+
+![Opening VS Code from terminal](image/README/26.jpg)
+
+That's it — installation is done.
 
 ---
 
@@ -116,17 +170,17 @@ That's it. You're done.
 
 Two ways to use it. Pick whichever feels comfortable — same agents, same skills, same brain.
 
-**🖥️ In VS Code (if you installed it):**
+**⌨️ In any terminal, type `lcg` and press Enter.** A new GitHub Copilot CLI session launches. The first time it asks **Confirm folder trust** — pick **Yes**.
+
+![lcg launches Copilot CLI — confirm folder trust](image/README/27.jpg)
+
+Once trusted, you'll see *"Environment loaded: 7 custom instructions, 43 skills"* — that's L.C.G. ready to go. Just type what you want in plain English.
+
+![Copilot CLI ready — start typing](image/README/28.jpg)
+
+**🖥️ In VS Code (only if you installed it):**
 
 Open the L.C.G. folder → open **Copilot Chat** (`Ctrl+Alt+I` on Windows, `⌃⌘I` on macOS) → pick the **Chief of Staff** agent → start typing.
-
-![Copilot Chat with Chief of Staff agent](image/README/27.jpg)
-
-**⌨️ In a terminal:**
-
-Open any terminal, type `lcg`, press **Enter**. A new Copilot CLI session launches with all of L.C.G. loaded.
-
-![lcg command in terminal](image/README/28.jpg)
 
 > Both interfaces are equivalent. See [Two Ways to Use L.C.G.](#two-ways-to-use-lcg) for details.
 
