@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 
 > 💡 **Two things are optional.** When the installer asks about **VS Code** or **Obsidian Desktop**, type `Y` or `N` — *either is fine*. Both are explained at the relevant step below.
 
-> 🎥 **Watch the full walkthrough first** *(2 min)* — then follow the numbered steps below at your own pace.
+🎥 **Watch the full walkthrough first** *(2 min)* — then follow the numbered steps below at your own pace.
 
 <video src="https://github.com/JinLee794/L.C.G/raw/lv-installation/image/README/LCG-part2_final.mp4" controls width="720" muted playsinline>
   Your browser doesn't support inline video. <a href="https://github.com/JinLee794/L.C.G/raw/lv-installation/image/README/LCG-part2_final.mp4">Download the walkthrough (MP4)</a>.
