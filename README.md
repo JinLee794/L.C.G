@@ -47,9 +47,11 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 
 ## Demo Video
 
-Click [here to play the demo preview](https://github.com/JinLee794/L.C.G/blob/lv-installation/image/README/LCG-part2_preview.mp4).
+<a href="https://github.com/JinLee794/L.C.G/blob/lv-installation/image/README/LCG-part2_preview.mp4">
+  <img src="https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/docs/assets/lcg-demo-preview.gif" alt="L.C.G install walkthrough preview" width="640" />
+</a>
 
-> 📥 If your browser downloads instead of playing, open the [direct MP4 link](https://github.com/JinLee794/L.C.G/blob/lv-installation/image/README/LCG-part2_preview.mp4).
+> ▶ Click the preview above to open the full MP4.
 
 **1. Open Windows PowerShell.** Click Start, type "PowerShell", and pick **Windows PowerShell** (the regular one — not the blue ISE).
 
