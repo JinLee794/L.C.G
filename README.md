@@ -55,11 +55,11 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ## Demo Video
 
-<a href="https://github.com/JinLee794/L.C.G/blob/lv-installation/image/README/LCG-part2_preview.mp4">
+<a href="https://github.com/JinLee794/L.C.G/raw/lv-installation/image/README/LCG-part2_preview.mp4">
   <img src="https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/docs/assets/lcg-demo-preview.gif" alt="L.C.G install walkthrough preview" width="640" />
 </a>
 
-> ▶ Click the preview above to open the full MP4.
+> ▶ **[Download the full walkthrough MP4](https://github.com/JinLee794/L.C.G/raw/lv-installation/image/README/LCG-part2_preview.mp4)** (≈10 MB) — or click the preview above.
 
 **1. Open Windows PowerShell.** Click Start, type "PowerShell", and pick **Windows PowerShell** (the regular one — not the blue ISE).
 
