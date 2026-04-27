@@ -47,9 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 
 🎥 **Watch the full walkthrough first** *(2 min)* — then follow the numbered steps below at your own pace.
 
-<video src="https://github.com/JinLee794/L.C.G/releases/download/walkthrough-video/LCG-part2_final.mp4" controls width="720" muted playsinline>
-  Your browser doesn't support inline video. <a href="https://github.com/JinLee794/L.C.G/releases/download/walkthrough-video/LCG-part2_final.mp4">Download the walkthrough (MP4)</a>.
-</video>
+<video src="https://github.com/JinLee794/L.C.G/releases/download/walkthrough-video/LCG-part2_final.mp4" controls></video>
 
 **1. Open Windows PowerShell.** Click Start, type "PowerShell", and pick **Windows PowerShell** (the regular one — not the blue ISE).
 
