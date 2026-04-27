@@ -46,7 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 Open **Windows PowerShell** (Start → type "PowerShell" → **Windows PowerShell**), paste, press **Enter**:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)"; & ([scriptblock]::Create($s)) -Ref lv-installation
+Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)"; & ([scriptblock]::Create($s)) -Ref main
 ```
 
 > 💡 **Two things are optional.** When the installer asks about **VS Code** or **Obsidian Desktop**, type `Y` or `N` — *either is fine*. Both are explained at the relevant step below.
@@ -55,11 +55,11 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ## Demo Video
 
-<a href="https://github.com/JinLee794/L.C.G/raw/lv-installation/image/README/LCG-part2_preview.mp4">
-  <img src="https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/docs/assets/lcg-demo-preview.gif" alt="L.C.G install walkthrough preview" width="640" />
+<a href="https://github.com/JinLee794/L.C.G/raw/main/image/README/LCG-part2_preview.mp4">
+  <img src="https://raw.githubusercontent.com/JinLee794/L.C.G/main/docs/assets/lcg-demo-preview.gif" alt="L.C.G install walkthrough preview" width="640" />
 </a>
 
-> ▶ **[Download the full walkthrough MP4](https://github.com/JinLee794/L.C.G/raw/lv-installation/image/README/LCG-part2_preview.mp4)** (≈10 MB) — or click the preview above.
+> ▶ **[Download the full walkthrough MP4](https://github.com/JinLee794/L.C.G/raw/main/image/README/LCG-part2_preview.mp4)** (≈10 MB) — or click the preview above.
 
 **1. Open Windows PowerShell.** Click Start, type "PowerShell", and pick **Windows PowerShell** (the regular one — not the blue ISE).
 
@@ -68,7 +68,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 **2. Paste the one‑liner and press Enter.** Right‑click in the PowerShell window to paste.
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)"; & ([scriptblock]::Create($s)) -Ref lv-installation
+Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)"; & ([scriptblock]::Create($s)) -Ref main
 ```
 
 ![Paste the one-liner](image/README/2.jpg)
