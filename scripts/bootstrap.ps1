@@ -180,25 +180,55 @@ function Invoke-SilentAzLogin {
     return $false
   }
 
+  $restoreNativeErrorPref = $false
+  $previousNativeErrorPref = $null
+  if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $restoreNativeErrorPref = $true
+    $previousNativeErrorPref = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+  }
+
   Say-Info "Signing in to Azure (using your Windows account)..."
-  & az config set core.enable_broker_on_windows=true --only-show-errors 2>$null | Out-Null
-  & az config set core.login_experience_v2=off       --only-show-errors 2>$null | Out-Null
+  try {
+    try { & az config set core.enable_broker_on_windows=true --only-show-errors 2>$null | Out-Null } catch { }
+    try { & az config set core.login_experience_v2=off       --only-show-errors 2>$null | Out-Null } catch { }
 
-  $existing = (& az account show --query user.name -o tsv 2>$null)
-  if ($LASTEXITCODE -eq 0 -and $existing) {
-    Say-Ok "Already signed in as $existing"
-    return $true
+    $existing = ""
+    try {
+      $existing = (& az account show --query user.name -o tsv --only-show-errors 2>$null)
+    } catch {
+      $existing = ""
+    }
+
+    if ($LASTEXITCODE -eq 0 -and $existing) {
+      Say-Ok "Already signed in as $existing"
+      return $true
+    }
+
+    try {
+      & az login --tenant $MicrosoftTenantId --allow-no-subscriptions --output none --only-show-errors 2>$null | Out-Null
+    } catch { }
+
+    $who = ""
+    try {
+      $who = (& az account show --query user.name -o tsv --only-show-errors 2>$null)
+    } catch {
+      $who = ""
+    }
+
+    if ($LASTEXITCODE -eq 0 -and $who) {
+      Say-Ok "Signed in as $who"
+      return $true
+    }
+
+    Say-Warn "Silent Azure sign-in did not complete - you can run 'az login --tenant $MicrosoftTenantId --allow-no-subscriptions' later."
+    return $false
   }
-
-  & az login --tenant $MicrosoftTenantId --allow-no-subscriptions --output none 2>$null | Out-Null
-  $who = (& az account show --query user.name -o tsv 2>$null)
-  if ($LASTEXITCODE -eq 0 -and $who) {
-    Say-Ok "Signed in as $who"
-    return $true
+  finally {
+    if ($restoreNativeErrorPref) {
+      $PSNativeCommandUseErrorActionPreference = $previousNativeErrorPref
+    }
   }
-
-  Say-Warn "Silent Azure sign-in did not complete - you can run 'az login' later."
-  return $false
 }
 
 function Invoke-Wizard {
