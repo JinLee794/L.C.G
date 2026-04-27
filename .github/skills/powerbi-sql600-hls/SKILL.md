@@ -187,6 +187,8 @@ When the user says "html report", "dashboard", "rich report", or "exec report":
 6. Output lands in `.copilot/docs/sql600-hls-readout-<YYYY-MM-DD>.html`
 7. Open in browser for preview; printable to PDF via Cmd+P
 
+> **Theme picker baked in.** Every generated report includes an inline palette switcher at the bottom of the page with 12 themes (default purple, red/orange/yellow/green/blue/indigo/violet, gold, pink, rainbow, light) plus a 🎉 PARTY MODE 🎉 button that flashes, cycles colors, rains confetti, and shakes the header. Selection persists per-browser via `localStorage` (`sql600-palette`). Switcher is hidden in print and respects `prefers-reduced-motion`. The header gradient and corner glow re-theme with the chosen palette via `--header-gradient` / `--header-glow` CSS variables.
+
 > **AIO data in JSON:** If Step 2.5 ran, the JSON file should include `aioAccountMoM`, `aioServiceBreakdown`, and `aioBudgetAttainment` arrays. The HTML generator renders these as an "Azure Consumption Deep Dive" section with a MoM heatmap, service pillar breakdown, and budget attainment overlay. If the AIO arrays are missing or empty, the section is omitted gracefully.
 
 **JSON input schema** for `generate-sql600-report.js`:
