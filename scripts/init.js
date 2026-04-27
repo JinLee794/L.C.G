@@ -55,6 +55,14 @@ const PREREQS = [
 
 // ── helpers ─────────────────────────────────────────────────────────
 const isWindows = process.platform === "win32";
+let hasShownWindowsUacNote = false;
+
+function showWindowsUacNote() {
+  if (!isWindows || hasShownWindowsUacNote) return;
+  info("Windows may show a User Account Control (UAC) prompt during installation.");
+  info("Please select 'Yes' to continue.");
+  hasShownWindowsUacNote = true;
+}
 
 function run(cmd, cwd) {
   execSync(cmd, {
@@ -107,6 +115,80 @@ function commandExists(cmd) {
   return Boolean(tryRun(isWindows ? `where ${cmd}` : `command -v ${cmd}`));
 }
 
+function findVsCodeDesktop() {
+  if (commandExists("code")) return true;
+
+  if (isWindows) {
+    const candidates = [
+      join(process.env.LOCALAPPDATA || "", "Programs", "Microsoft VS Code", "bin", "code.cmd"),
+      join(process.env.ProgramFiles || "", "Microsoft VS Code", "bin", "code.cmd"),
+      join(process.env["ProgramFiles(x86)"] || "", "Microsoft VS Code", "bin", "code.cmd"),
+    ].filter(Boolean);
+    return candidates.some((p) => existsSync(p));
+  }
+
+  if (process.platform === "darwin") {
+    return existsSync("/Applications/Visual Studio Code.app") || commandExists("code");
+  }
+
+  return commandExists("code");
+}
+
+function isVsCodeInstalledByWinget() {
+  if (!isWindows || !commandExists("winget")) return false;
+  const out = tryRun("winget list --id Microsoft.VisualStudioCode -e");
+  return Boolean(out && out.toLowerCase().includes("visual studio code"));
+}
+
+async function ensureVsCode({ autoInstall = false } = {}) {
+  if (findVsCodeDesktop()) {
+    const version = tryRun("code --version")?.split("\n")[0];
+    ok(`Visual Studio Code detected${version ? ` (${version})` : ""}`);
+    return true;
+  }
+
+  let shouldInstall = false;
+  if (process.stdin.isTTY) {
+    console.log();
+    console.log("  Visual Studio Code is the recommended host for Copilot Chat and L.C.G agents.");
+    console.log("  You can skip for now and install it later if you prefer.");
+    const answer = await ask("  Install Visual Studio Code now? [Y/n]: ");
+    const normalized = answer.trim().toLowerCase();
+    shouldInstall = normalized === "" || normalized === "y" || normalized === "yes";
+  } else if (autoInstall) {
+    info("Non-interactive shell detected — skipping Visual Studio Code auto-install.");
+  }
+
+  if (!shouldInstall) {
+    info("Skipping Visual Studio Code install.");
+    info("  You can install it later from https://code.visualstudio.com/download");
+    return false;
+  }
+
+  info("Installing Visual Studio Code...");
+
+  if (isWindows && commandExists("winget")) {
+    showWindowsUacNote();
+    runBestEffort("winget install --id Microsoft.VisualStudioCode -e --accept-package-agreements --accept-source-agreements");
+  } else if (isWindows && commandExists("choco")) {
+    showWindowsUacNote();
+    runBestEffort("choco install vscode -y");
+  } else if (process.platform === "darwin" && commandExists("brew")) {
+    runBestEffort("brew install --cask visual-studio-code");
+  } else {
+    warn("Automatic VS Code install is not available on this platform.");
+  }
+
+  if (findVsCodeDesktop() || isVsCodeInstalledByWinget()) {
+    ok("Visual Studio Code installed.");
+    return true;
+  }
+
+  warn("Visual Studio Code install did not complete automatically.");
+  warn("  Install manually: https://code.visualstudio.com/download");
+  return false;
+}
+
 function ensureOptionalCli(name, verifyCmd, installers) {
   if (tryRun(verifyCmd)) return true;
 
@@ -114,6 +196,7 @@ function ensureOptionalCli(name, verifyCmd, installers) {
 
   if (isWindows) {
     if (installers.wingetId && commandExists("winget")) {
+      showWindowsUacNote();
       info(`Installing ${name} via winget...`);
       const okInstall = runBestEffort(
         `winget install --id ${installers.wingetId} -e --accept-package-agreements --accept-source-agreements`
@@ -125,6 +208,7 @@ function ensureOptionalCli(name, verifyCmd, installers) {
     }
 
     if (installers.chocoPackage && commandExists("choco")) {
+      showWindowsUacNote();
       info(`Installing ${name} via Chocolatey...`);
       const okInstall = runBestEffort(`choco install ${installers.chocoPackage} -y`);
       if (okInstall && tryRun(verifyCmd)) {
@@ -177,22 +261,44 @@ function isObsidianInstalledByWinget() {
   return Boolean(out && out.toLowerCase().includes("obsidian"));
 }
 
-function ensureObsidianDesktop({ autoInstall = false } = {}) {
+async function ensureObsidianDesktop({ autoInstall = false } = {}) {
   let obsidianPath = findObsidianDesktop();
   if (obsidianPath) {
     ok(`Obsidian Desktop detected (${obsidianPath})`);
     return true;
   }
 
-  if (!autoInstall) {
-    warn("Obsidian Desktop not found.");
-    warn("  Install: https://obsidian.md/download");
+  // Wizard already asked the user — honor their choice.
+  if (process.env.LCG_SKIP_OBSIDIAN_INSTALL === "1") {
+    info("Obsidian Desktop install skipped (per wizard choice).");
+    info("  You can install it later from https://obsidian.md/download");
     return false;
   }
 
-  info("Obsidian Desktop not detected. Attempting automatic install...");
+  // Interactive mode: ask the user whether to install.
+  let shouldInstall = false;
+  if (process.stdin.isTTY) {
+    console.log();
+    console.log("  Obsidian Desktop is the recommended UI for browsing your vault");
+    console.log("  (customer notes, meeting briefs, drafts). It is not strictly required —");
+    console.log("  everything is plain Markdown and can be viewed with any editor.");
+    const answer = await ask("  Install Obsidian Desktop now? [Y/n]: ");
+    const normalized = answer.trim().toLowerCase();
+    shouldInstall = normalized === "" || normalized === "y" || normalized === "yes";
+  } else if (autoInstall) {
+    info("Non-interactive shell detected — skipping Obsidian Desktop auto-install.");
+  }
+
+  if (!shouldInstall) {
+    info("Skipping Obsidian Desktop install.");
+    info("  You can install it later from https://obsidian.md/download");
+    return false;
+  }
+
+  info("Installing Obsidian Desktop...");
 
   if (isWindows && commandExists("winget")) {
+    showWindowsUacNote();
     info("Installing Obsidian via winget...");
     runBestEffort("winget install --id Obsidian.Obsidian -e --accept-package-agreements --accept-source-agreements");
   } else if (process.platform === "darwin" && commandExists("brew")) {
@@ -264,28 +370,39 @@ async function checkPrereqs({ autoInstallOptional = false } = {}) {
     let account = tryRun("az account show --query user.name -o tsv");
     if (account) {
       ok(`Signed in as ${account}`);
+    } else if (process.env.LCG_AZ_AUTH_DONE === "1") {
+      // The PS1 wizard already attempted silent sign-in (WAM broker) and
+      // surfaced its result to the user. Don't double-prompt here.
+      info("Azure sign-in not active in this Node session — open a new shell and run 'az login' if needed.");
+    } else if (autoInstallOptional && process.stdin.isTTY) {
+      // Offer sign-in immediately after install — the Azure CLI context is
+      // fresh in the user's terminal, and a cached token here means the rest
+      // of setup (MCP server checks, vault sync, any az-backed probes) can
+      // proceed without prompting again. We only ask once: the tail end of
+      // this script relies on the token being cached here if the user opts in.
+      console.log();
+      info("Azure sign-in required for CRM / M365-connected workflows.");
+      console.log("    Use your Microsoft account (example: alias@microsoft.com).");
+      console.log("    During subscription selection, press Enter to accept the default.");
+      console.log();
+
+      const runAzLogin = await ask("  Run 'az login' now? [Y/n]: ");
+      if (!runAzLogin || runAzLogin.toLowerCase() === "y" || runAzLogin.toLowerCase() === "yes") {
+        const loginOk = runBestEffort("az login");
+        if (!loginOk) {
+          warn("Azure login was not completed. You can run 'az login' later.");
+        }
+        account = tryRun("az account show --query user.name -o tsv");
+        if (account) {
+          ok(`Signed in as ${account}`);
+        } else {
+          warn("Still not signed in. Run 'az login' before using lcg.");
+        }
+      } else {
+        warn("Skipping Azure sign-in. Run 'az login' before using lcg.");
+      }
     } else {
       warn("Azure CLI installed but not signed in — run: az login");
-
-      if (autoInstallOptional && process.stdin.isTTY) {
-        console.log("\n  Azure sign-in is required to continue setup.");
-        console.log("  Use your Microsoft account, for example: alias@microsoft.com");
-        console.log("  During subscription selection, you can press Enter to accept any default option.\n");
-
-        const runAzLogin = await ask("  Run 'az login' now? [Y/n]: ");
-        if (!runAzLogin || runAzLogin.toLowerCase() === "y" || runAzLogin.toLowerCase() === "yes") {
-          const loginOk = runBestEffort("az login");
-          if (!loginOk) {
-            warn("Azure login was not completed. You can run 'az login' later.");
-          }
-          account = tryRun("az account show --query user.name -o tsv");
-          if (account) {
-            ok(`Signed in as ${account}`);
-          } else {
-            warn("Azure CLI still not signed in.");
-          }
-        }
-      }
     }
   } else {
     warn("Azure CLI not found — needed for CRM authentication.");
@@ -308,11 +425,9 @@ async function checkPrereqs({ autoInstallOptional = false } = {}) {
     if (ghStatus && ghStatus.includes("read:packages")) {
       ok("GitHub Packages auth available via GitHub CLI");
     } else if (ghStatus) {
-      warn("GitHub CLI is signed in, but no account with read:packages was detected.");
-      warn("  Run: npm run auth:packages");
+      info("GitHub sign-in detected — package access will be set up in the next step.");
     } else {
-      warn("GitHub CLI installed but not signed in.");
-      warn("  Run: npm run auth:packages");
+      info("GitHub sign-in pending — you'll be prompted in the next step.");
     }
   } else {
     console.log();
@@ -332,7 +447,9 @@ async function checkPrereqs({ autoInstallOptional = false } = {}) {
     console.log();
   }
 
-  ensureObsidianDesktop({ autoInstall: autoInstallOptional });
+  await ensureVsCode({ autoInstall: autoInstallOptional });
+
+  await ensureObsidianDesktop({ autoInstall: autoInstallOptional });
 
   return passed;
 }
@@ -346,7 +463,6 @@ function initServers() {
       console.log(`    ${server.note}`);
     }
   }
-  console.log("    Private GitHub Packages can be bootstrapped with: npm run auth:packages");
 
   return true;
 }
@@ -692,6 +808,22 @@ function parseEnvFile(filePath) {
   return vars;
 }
 
+function upsertEnvVar(filePath, key, value) {
+  const newLine = `${key}=${value}`;
+  const content = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
+  const lines = content === "" ? [] : content.split(/\r?\n/);
+  const kept = lines.filter((entry) => {
+    const trimmed = entry.trim();
+    if (!trimmed || trimmed.startsWith("#")) return true;
+    const eq = entry.indexOf("=");
+    if (eq === -1) return true;
+    return entry.slice(0, eq).trim() !== key;
+  });
+
+  kept.push(newLine);
+  writeFileSync(filePath, `${kept.join("\n")}\n`, "utf-8");
+}
+
 function ask(question) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => rl.question(question, (a) => { rl.close(); resolve(a.trim()); }));
@@ -703,7 +835,35 @@ async function configureEnv() {
 
   if (existing.OBSIDIAN_VAULT_PATH) {
     ok(`Vault path already configured: ${existing.OBSIDIAN_VAULT_PATH}`);
-    return;
+    return {
+      configured: true,
+      shouldSync: true,
+      mode: "existing-config",
+      vaultPath: existing.OBSIDIAN_VAULT_PATH,
+    };
+  }
+
+  // Wizard short-circuit: if the PS1 installer already collected the vault
+  // choice, persist it to .env without re-prompting.
+  if (process.env.LCG_VAULT_PATH) {
+    const wizardVault = resolve(process.env.LCG_VAULT_PATH);
+    const starterDir = join(ROOT, "vault-starter");
+    if (!existsSync(wizardVault)) {
+      info(`Creating vault at ${wizardVault}`);
+      mkdirSync(wizardVault, { recursive: true });
+      if (existsSync(starterDir)) {
+        info("Seeding vault-starter/ into the new vault...");
+        cpSync(starterDir, wizardVault, { recursive: true });
+      }
+    }
+    upsertEnvVar(envPath, "OBSIDIAN_VAULT_PATH", wizardVault);
+    ok(`Vault path set from installer: ${wizardVault}`);
+    return {
+      configured: true,
+      shouldSync: process.env.LCG_VAULT_MODE !== "existing",
+      mode: process.env.LCG_VAULT_MODE || "wizard",
+      vaultPath: wizardVault,
+    };
   }
 
   // Skip prompt in non-interactive environments (CI, piped stdin)
@@ -714,25 +874,66 @@ async function configureEnv() {
       info("Non-interactive shell — initializing local vault from vault-starter/...");
       cpSync(starterDir, localVault, { recursive: true });
     }
-    const envLine = `OBSIDIAN_VAULT_PATH=${localVault}\n`;
-    const content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
-    writeFileSync(envPath, content + envLine, "utf-8");
+    upsertEnvVar(envPath, "OBSIDIAN_VAULT_PATH", localVault);
     ok(`Vault path set to local .vault/ directory`);
-    return;
+    return {
+      configured: true,
+      shouldSync: true,
+      mode: "local",
+      vaultPath: localVault,
+    };
   }
 
   heading("Obsidian Vault Configuration");
-  console.log("  The OIL MCP server needs the path to your Obsidian vault.");
-  console.log("  This is stored in .env (gitignored) — not committed.");
-  console.log("  Press Enter to use a local vault inside the repo (.vault/).\n");
+  const enableVault = await ask("  Set up an Obsidian vault now? [Y/n]: ");
+  const normalizedEnable = enableVault.trim().toLowerCase();
+  const shouldConfigureVault =
+    normalizedEnable === "" || normalizedEnable === "y" || normalizedEnable === "yes";
+  if (!shouldConfigureVault) {
+    info("Skipping vault setup for now.");
+    info("Run 'npm run vault:init' later after setting OBSIDIAN_VAULT_PATH in .env.");
+    return {
+      configured: false,
+      shouldSync: false,
+      mode: "skipped",
+      vaultPath: null,
+    };
+  }
 
-  const vaultInput = await ask("  Obsidian vault path (Enter = local .vault/): ");
   const localVault = join(ROOT, ".vault");
-  const vaultPath = vaultInput || localVault;
+  const starterDir = join(ROOT, "vault-starter");
 
-  if (!vaultInput) {
-    // Scaffold local vault from vault-starter/ if it doesn't exist yet
-    const starterDir = join(ROOT, "vault-starter");
+  console.log("  L.C.G. needs an Obsidian vault — plain Markdown files for customer notes,");
+  console.log("  meeting history, drafts, and learning corrections. The path is saved to .env");
+  console.log("  (gitignored — not committed).\n");
+  console.log("  Where should your vault live?\n");
+  console.log(`    1) Inside the L.C.G. folder  ${"\x1b[2m"}[recommended — easy to find]${"\x1b[0m"}`);
+  console.log(`       ${"\x1b[2m"}→ ${localVault}${"\x1b[0m"}`);
+  console.log("    2) Create a new vault at a custom location");
+  console.log(`       ${"\x1b[2m"}→ you'll enter a path; the folder will be created if it doesn't exist${"\x1b[0m"}`);
+  console.log("    3) Use an existing Obsidian vault");
+  console.log(`       ${"\x1b[2m"}→ you'll enter the path to a vault you already have${"\x1b[0m"}`);
+  console.log();
+
+  let choice = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = await ask("  Choice [1-3, Enter=1]: ");
+    const normalized = raw.trim();
+    if (normalized === "" || normalized === "1" || normalized === "2" || normalized === "3") {
+      choice = normalized || "1";
+      break;
+    }
+    warn(`Invalid choice "${raw}". Enter 1, 2, or 3.`);
+  }
+  if (!choice) {
+    warn("No valid choice provided — defaulting to option 1 (local .vault/).");
+    choice = "1";
+  }
+
+  let vaultPath = localVault;
+  let mode = "local";
+
+  if (choice === "1") {
     if (!existsSync(localVault) && existsSync(starterDir)) {
       info("Initializing local vault from vault-starter/...");
       cpSync(starterDir, localVault, { recursive: true });
@@ -740,17 +941,63 @@ async function configureEnv() {
     } else if (existsSync(localVault)) {
       ok(`Local vault already exists at ${localVault}`);
     }
-    info("You can point this to an Obsidian vault later by editing .env");
-  } else if (!existsSync(vaultPath)) {
-    warn(`Path does not exist yet: ${vaultPath}`);
-    warn("Saving anyway — make sure the vault is created before starting OIL.");
+    mode = "local";
+  } else if (choice === "2") {
+    const raw = (await ask("  New vault path: ")).trim().replace(/^["']|["']$/g, "");
+    if (!raw) {
+      warn("No path provided — falling back to local .vault/.");
+      vaultPath = localVault;
+      mode = "local";
+      if (!existsSync(localVault) && existsSync(starterDir)) {
+        cpSync(starterDir, localVault, { recursive: true });
+      }
+    } else {
+      vaultPath = resolve(raw);
+      mode = "new";
+      if (!existsSync(vaultPath)) {
+        info(`Creating new vault at ${vaultPath}`);
+        mkdirSync(vaultPath, { recursive: true });
+      }
+      if (existsSync(starterDir)) {
+        info("Seeding vault-starter/ into the new vault...");
+        cpSync(starterDir, vaultPath, { recursive: true });
+      }
+      ok(`Vault created at ${vaultPath}`);
+    }
+  } else {
+    // choice === "3"
+    const raw = (await ask("  Path to existing Obsidian vault: ")).trim().replace(/^["']|["']$/g, "");
+    if (!raw) {
+      warn("No path provided — falling back to local .vault/.");
+      vaultPath = localVault;
+      mode = "local";
+      if (!existsSync(localVault) && existsSync(starterDir)) {
+        cpSync(starterDir, localVault, { recursive: true });
+      }
+    } else {
+      vaultPath = resolve(raw);
+      mode = "existing";
+      if (!existsSync(vaultPath)) {
+        warn(`Path does not exist: ${vaultPath}`);
+        warn("Saving anyway — create the vault before starting OIL,");
+        warn("or re-run 'npm run vault:init' after creating it.");
+        mode = "new";
+      } else {
+        ok(`Using existing vault at ${vaultPath}`);
+        info("Will update .env to point to your existing vault.");
+      }
+    }
   }
 
-  // Append to .env (preserve any other vars)
-  const envLine = `OBSIDIAN_VAULT_PATH=${vaultPath}\n`;
-  const content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
-  writeFileSync(envPath, content + envLine, "utf-8");
+  // Set/update key in .env while preserving all other vars.
+  upsertEnvVar(envPath, "OBSIDIAN_VAULT_PATH", vaultPath);
   ok(`Saved to .env: OBSIDIAN_VAULT_PATH=${vaultPath}`);
+  return {
+    configured: true,
+    shouldSync: mode !== "existing",
+    mode,
+    vaultPath,
+  };
 }
 
 // ── vault sync ──────────────────────────────────────────────────────
@@ -826,6 +1073,7 @@ function runVaultSync() {
 
 // ── main ────────────────────────────────────────────────────────────
 const checkMode = process.argv.includes("--check");
+const deferFinalReport = process.env.LCG_DEFER_FINAL_REPORT === "1";
 
 if (checkMode) {
   const ok = await checkOnly();
@@ -883,28 +1131,36 @@ if (checkMode) {
       warn("Or open Copilot Chat (Cmd+Shift+I) and ask: 'Help me debug my MCP package auth setup'");
     }
 
-    await configureEnv();
-    runVaultSync();
+    const vaultConfig = await configureEnv();
+    if (vaultConfig?.shouldSync) {
+      runVaultSync();
+    } else if (vaultConfig?.mode === "existing") {
+      heading("Vault scaffold & sync");
+      info("Using existing vault path from .env; skipped scaffold/sync by request.");
+    } else if (vaultConfig?.mode === "skipped") {
+      heading("Vault scaffold & sync");
+      info("Skipped because vault setup was declined.");
+    }
     const aliasOk = registerAlias();
     heading("All done ✔");
 
-    if (aliasOk) {
+    if (!deferFinalReport && aliasOk) {
       console.log();
       console.log("  \x1b[1m\x1b[32m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                    │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                      │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│   Run from any terminal, any directory:                     │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[33m│       'lcg'                                                 │\x1b[0m");
-      console.log("  \x1b[1m\x1b[33m│       'lcg' -p \"morning triage\"                             │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│       lcg                                                   │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│       lcg -p \"Who am I in MSX?\"                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,          │\x1b[0m");
-      console.log("  \x1b[1m\x1b[32m│   agents, and skills — no need to cd into the repo.        │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,              │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   agents, and skills — no need to cd into the repo.         │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m└─────────────────────────────────────────────────────────────┘\x1b[0m");
       console.log();
-    } else {
+    } else if (!deferFinalReport) {
       console.log();
       console.log("  \x1b[1m\x1b[33m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
@@ -915,44 +1171,40 @@ if (checkMode) {
       console.log();
     }
 
-    // Check if already signed in; if not, offer interactive az login now.
-    let account = tryRun("az account show --query user.name -o tsv");
-    if (!account && process.stdin.isTTY && commandExists("az")) {
-      console.log("\n  Azure sign-in is required to use CRM/M365-connected workflows.");
-      console.log("  Use your Microsoft account, for example: alias@microsoft.com");
-      console.log("  During subscription selection, you can press Enter to accept any default option.\n");
+    // Re-check sign-in status for the final message. `az login` was already
+    // offered right after the Azure CLI prereq check (see checkPrereqs with
+    // autoInstallOptional: true) — don't prompt a second time here.
+    const account = tryRun("az account show --query user.name -o tsv");
 
-      const runAzLogin = await ask("  Run 'az login' now? [Y/n]: ");
-      if (!runAzLogin || runAzLogin.toLowerCase() === "y" || runAzLogin.toLowerCase() === "yes") {
-        const loginOk = runBestEffort("az login");
-        if (!loginOk) {
-          warn("Azure login was not completed. You can run 'az login' later.");
-        }
-        account = tryRun("az account show --query user.name -o tsv");
-      }
-    }
-
-    if (account) {
+    if (!deferFinalReport && account) {
       console.log(`
   You're signed in as ${account}. Everything is ready!
 
-  Next steps:
-    1. Open this repo in VS Code:  code .
-    2. MCP servers auto-start via .vscode/mcp.json
-    3. Open Copilot chat (Cmd+Shift+I) and try: "Who am I in MSX?"
-    4. Or just run 'lcg' from any terminal!
+  Try it now:
+      lcg -p "Who am I in MSX?"
+
+  Optional — for editing skills, prompts, and tasks:
+      code .                # opens the repo in VS Code
+                            # MCP servers auto-start via .vscode/mcp.json
+                            # then open Copilot Chat (Ctrl+Alt+I)
 `);
-    } else {
+    } else if (!deferFinalReport) {
       console.log(`
-  Next steps:
+  Almost there — finish Azure sign-in, then you're ready.
+
+  Required:
     1. Connect to Microsoft VPN
-    2. Sign in to Azure:        az login
+    2. Sign in to Azure:    az login
        Use your Microsoft account (example: alias@microsoft.com)
-       During subscription selection, press Enter to choose any default option
-    3. Open this repo in VS Code:  code .
-    4. MCP servers auto-start via .vscode/mcp.json
-    5. Open Copilot chat (Cmd+Shift+I) and try: "Who am I in MSX?"
-    6. Or just run 'lcg' from any terminal!
+       During subscription selection, press Enter to accept the default
+
+  Try it now:
+      lcg -p "Who am I in MSX?"
+
+  Optional — for editing skills, prompts, and tasks:
+      code .                # opens the repo in VS Code
+                            # MCP servers auto-start via .vscode/mcp.json
+                            # then open Copilot Chat (Ctrl+Alt+I)
 `);
     }
   } else {

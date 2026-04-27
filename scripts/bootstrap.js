@@ -20,7 +20,7 @@
  *   Windows:  winget install OpenJS.NodeJS    (or use nvm-windows)
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,11 +43,120 @@ const C = {
   bold: "\x1b[1m",
 };
 
+const SUMMARY_PLACEHOLDER = "__PENDING__";
+
 function step(msg) { console.log(`\n${C.cyan}━━━ ${msg} ━━━${C.reset}`); }
 function ok(msg)   { console.log(`  ${C.green}✔ ${msg}${C.reset}`); }
 function warn(msg) { console.log(`  ${C.yellow}⚠ ${msg}${C.reset}`); }
 function fail(msg) { console.log(`  ${C.red}✖ ${msg}${C.reset}`); }
 function info(msg) { console.log(`  ${C.blue}→ ${msg}${C.reset}`); }
+const installSummary = [];
+let hasShownWindowsUacNote = false;
+
+function formatDuration(ms) {
+  const secs = Math.max(0, Math.round(ms / 1000));
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  if (mins > 0) return `${mins}m ${String(rem).padStart(2, "0")}s`;
+  return `${secs}s`;
+}
+
+function pushSummary(component, status, startedAt, note = "") {
+  installSummary.push({
+    component,
+    status,
+    duration: formatDuration(Date.now() - startedAt),
+    note,
+  });
+}
+
+function printInstallSummary() {
+  if (installSummary.length === 0) return;
+
+  const rows = [
+    ["Component", "Result", "Time", "Notes"],
+    ...installSummary.map((x) => [x.component, x.status, x.duration, x.note || "-"]),
+  ];
+  const widths = [0, 0, 0, 0];
+  for (const row of rows) {
+    row.forEach((cell, idx) => {
+      widths[idx] = Math.max(widths[idx], String(cell).length);
+    });
+  }
+
+  const line = `+${widths.map((w) => "-".repeat(w + 2)).join("+")}+`;
+  const fmt = (row) => `| ${row.map((cell, i) => String(cell).padEnd(widths[i], " ")).join(" | ")} |`;
+
+  step("Installation summary");
+  console.log(line);
+  console.log(fmt(rows[0]));
+  console.log(line);
+  for (let i = 1; i < rows.length; i++) {
+    console.log(fmt(rows[i]));
+  }
+  console.log(line);
+}
+
+function updateSummary(component, updates) {
+  const idx = installSummary.findIndex((x) => x.component === component);
+  if (idx === -1) return;
+  installSummary[idx] = { ...installSummary[idx], ...updates };
+}
+
+function commandOutput(cmd, args) {
+  try {
+    const r = spawnSync(cmd, args, { encoding: "utf-8" });
+    if (r.status !== 0) return null;
+    return (r.stdout || r.stderr || "").trim();
+  } catch {
+    return null;
+  }
+}
+
+function printFinalPostSummaryPanel() {
+  const aliasOk = has("lcg");
+  const account = commandOutput("az", ["account", "show", "--query", "user.name", "-o", "tsv"]);
+
+  if (aliasOk) {
+    console.log();
+    console.log("  \x1b[1m\x1b[32m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                      │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│   Run from any terminal, any directory:                     │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│       lcg                                                   │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│       lcg -p \"Who am I in MSX?\"                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,              │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│   agents, and skills — no need to cd into the repo.         │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[32m└─────────────────────────────────────────────────────────────┘\x1b[0m");
+    console.log();
+  } else {
+    console.log();
+    console.log("  \x1b[1m\x1b[33m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│   ⚠  'lcg' CLI was NOT installed globally.                │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│   See the instructions above to register it manually.      │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
+    console.log("  \x1b[1m\x1b[33m└─────────────────────────────────────────────────────────────┘\x1b[0m");
+    console.log();
+  }
+
+  if (account) {
+    console.log(`\n  You're signed in as ${account}. Everything is ready!\n\n  Try it now:\n      lcg -p "Who am I in MSX?"\n\n  Optional — for editing skills, prompts, and tasks:\n      code .                # opens the repo in VS Code\n                            # MCP servers auto-start via .vscode/mcp.json\n                            # then open Copilot Chat (Ctrl+Alt+I)\n`);
+  } else {
+    console.log(`\n  Almost there — finish Azure sign-in, then you're ready.\n\n  Required:\n    1. Connect to Microsoft VPN\n    2. Sign in to Azure:    az login\n       Use your Microsoft account (example: alias@microsoft.com)\n       During subscription selection, press Enter to accept the default\n\n  Try it now:\n      lcg -p "Who am I in MSX?"\n\n  Optional — for editing skills, prompts, and tasks:\n      code .                # opens the repo in VS Code\n                            # MCP servers auto-start via .vscode/mcp.json\n                            # then open Copilot Chat (Ctrl+Alt+I)\n`);
+  }
+}
+
+function showWindowsUacNote() {
+  if (!isWin || hasShownWindowsUacNote) return;
+  info("Windows may show a User Account Control (UAC) prompt during installation.");
+  info("Please select 'Yes' to continue.");
+  hasShownWindowsUacNote = true;
+}
 
 function has(cmd) {
   const r = spawnSync(isWin ? "where" : "which", [cmd], { stdio: "ignore" });
@@ -130,24 +239,121 @@ function run(cmd, cmdArgs, opts = {}) {
   return r.status ?? 1;
 }
 
+function runCapture(cmd, cmdArgs, opts = {}) {
+  return spawnSync(cmd, cmdArgs, {
+    cwd: ROOT,
+    encoding: "utf8",
+    ...opts,
+  });
+}
+
+async function runCaptureWithHeartbeat(cmd, cmdArgs, opts = {}) {
+  const {
+    heartbeatLabel = `${cmd} ${cmdArgs.join(" ")}`,
+    cwd = ROOT,
+    ...spawnOpts
+  } = opts;
+
+  const spinnerFrames = ["|", "/", "-", "\\"];
+  const startedAt = Date.now();
+
+  return await new Promise((resolve) => {
+    const child = spawn(cmd, cmdArgs, {
+      cwd,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      ...spawnOpts,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let frame = 0;
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    process.stdout.write(`  ${C.blue}-> ${heartbeatLabel}...${C.reset}\n`);
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const spin = spinnerFrames[frame % spinnerFrames.length];
+      frame += 1;
+      process.stdout.write(`\r  ${C.blue}-> ${heartbeatLabel}... ${spin} ${elapsed}s elapsed${C.reset}`);
+    }, 1000);
+
+    const finalize = (status, errMsg = "") => {
+      clearInterval(timer);
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      process.stdout.write(`\r  ${C.blue}-> ${heartbeatLabel}... done in ${elapsed}s${C.reset}                      \n`);
+      resolve({
+        status,
+        stdout,
+        stderr: errMsg ? `${stderr}\n${errMsg}`.trim() : stderr,
+      });
+    };
+
+    child.on("error", (err) => {
+      finalize(1, err?.message || "Failed to start installer process.");
+    });
+
+    child.on("close", (code) => {
+      finalize(code ?? 1);
+    });
+  });
+}
+
 function runQuiet(cmd, cmdArgs, opts = {}) {
   const r = spawnSync(cmd, cmdArgs, { stdio: "ignore", cwd: ROOT, ...opts });
   return r.status ?? 1;
 }
 
-function installWithWingetOrChoco(wingetId, chocoPkg) {
+function summarizeCommandOutput(result) {
+  const text = [result.stdout || "", result.stderr || ""]
+    .join("\n")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return text.at(-1) || "";
+}
+
+async function installWithWingetOrChoco(wingetId, chocoPkg) {
   if (!isWin) return false;
 
+  showWindowsUacNote();
+
   if (has("winget")) {
-    const rc = run("winget", [
-      "install",
-      "--id",
-      wingetId,
-      "-e",
-      "--silent",
-      "--accept-package-agreements",
-      "--accept-source-agreements",
-    ]);
+    let rc;
+    let wingetSummary = "";
+    // Windows Installer (msiexec) holds a global mutex; back-to-back MSI
+    // installs (e.g. Git followed by Azure CLI) can fail with exit 1618
+    // ("another installation is already in progress"). Retry with backoff
+    // when winget reports the matching error class.
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const result = await runCaptureWithHeartbeat("winget", [
+        "install",
+        "--id",
+        wingetId,
+        "-e",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+      ], { heartbeatLabel: `Installing ${wingetId} via winget` });
+      rc = result.status ?? 1;
+      wingetSummary = summarizeCommandOutput(result);
+      if (rc === 0 || rc === 1622) break;
+      const isMsiBusy = isMsiBusyExitCode(rc);
+      if (isMsiBusy && attempt < maxAttempts) {
+        const waitSec = attempt * 10; // 10s, 20s, 30s
+        warn(`winget reported MSI busy (exit ${rc}) for ${wingetId} — waiting ${waitSec}s for prior installer to finish (attempt ${attempt}/${maxAttempts - 1})...`);
+        waitForMsiIdle(waitSec * 1000);
+        continue;
+      }
+      break;
+    }
     // winget returns non-zero for several benign conditions:
     //   0x8a15002b (already installed)
     //   1622        (installer succeeded but log file couldn't be written)
@@ -161,12 +367,18 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
       return true;
     }
     if (rc !== 0) {
-      warn(`winget exited with code ${rc} for ${wingetId}; probing for tool and falling back if needed.`);
+      const detail = wingetSummary ? ` (${wingetSummary})` : "";
+      warn(`winget exited with code ${rc} for ${wingetId}${detail}; probing for tool and falling back if needed.`);
     }
   }
 
   if (has("choco")) {
-    const rc = run("choco", ["install", chocoPkg, "-y"]);
+    const result = await runCaptureWithHeartbeat(
+      "choco",
+      ["install", chocoPkg, "-y"],
+      { heartbeatLabel: `Installing ${chocoPkg} via Chocolatey` }
+    );
+    const rc = result.status ?? 1;
     if (rc === 0) {
       refreshWindowsPath();
       return true;
@@ -174,6 +386,31 @@ function installWithWingetOrChoco(wingetId, chocoPkg) {
   }
 
   return false;
+}
+
+// Recognize MSI/winget exit codes that indicate another installer holds the
+// Windows Installer mutex. 1618 is the canonical msiexec code; the rest are
+// the winget hex codes (printed as unsigned decimals) that map to the same
+// underlying condition.
+function isMsiBusyExitCode(rc) {
+  if (rc === 1618) return true;
+  // 0x8A150011 / 0x8A150092 / 0x8A15010D — winget "install in progress"-class errors
+  if (rc === 0x8A150011 || rc === 0x8A150092 || rc === 0x8A15010D) return true;
+  // Same values when surfaced as unsigned 32-bit decimals
+  if (rc === 2316632081 || rc === 2316632210 || rc === 2316632333) return true;
+  return false;
+}
+
+// Block until no msiexec.exe processes are running, or until timeoutMs elapses.
+function waitForMsiIdle(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const r = spawnSync("tasklist", ["/FI", "IMAGENAME eq msiexec.exe", "/NH"], { encoding: "utf-8" });
+    const out = (r.stdout || "").toLowerCase();
+    if (!out.includes("msiexec.exe")) return;
+    // Sleep ~2s between probes without using async/await (we're in a sync path).
+    spawnSync(process.execPath, ["-e", "setTimeout(()=>{}, 2000)"], { stdio: "ignore" });
+  }
 }
 
 function hasGhCopilot() {
@@ -192,7 +429,11 @@ function hasRunnableCopilot() {
         .split(/\r?\n/)
         .map((s) => s.trim())
         .filter(Boolean)
-        .filter((p) => /\.(cmd|exe)$/i.test(p))
+        .filter((p) => {
+          // Accept common Windows launchers and extensionless shims.
+          if (/\.(cmd|bat|exe)$/i.test(p)) return true;
+          return !/\.[^\\/]+$/.test(p);
+        })
     : [];
 
   // Fallback: probe the npm global prefix directly. `where` may miss it when
@@ -242,12 +483,40 @@ function normalizeCopilotShim() {
   }
 }
 
-function installAzureCli() {
+async function installGit() {
+  if (has("git")) return true;
+  if (!isWin) return false;
+
+  info("git is required for repo operations — installing it now...");
+  info("This can take a few minutes. Progress will be shown while installation runs.");
+  const installed = await installWithWingetOrChoco("Git.Git", "git");
+  if (!installed) return false;
+
+  // Wait for the Git MSI to fully release the Windows Installer mutex before
+  // the next prerequisite (e.g. Azure CLI) tries to start its own MSI.
+  waitForMsiIdle(60_000);
+
+  if (has("git")) return true;
+
+  // Git for Windows installs to Program Files\Git\cmd\git.exe.
+  const gitBin = findKnownWindowsBinary([
+    "Git\\cmd\\git.exe",
+  ]);
+  if (gitBin) {
+    const dir = dirname(gitBin);
+    process.env.PATH = `${process.env.PATH || ""};${dir}`;
+    return has("git");
+  }
+  return false;
+}
+
+async function installAzureCli() {
   if (has("az")) return true;
   if (!isWin) return false;
 
   info("Azure CLI missing - installing...");
-  const installed = installWithWingetOrChoco("Microsoft.AzureCLI", "azure-cli");
+  info("This can take a few minutes. Progress will be shown while installation runs.");
+  const installed = await installWithWingetOrChoco("Microsoft.AzureCLI", "azure-cli");
   if (!installed) return false;
 
   // winget sometimes returns before the new PATH entry is visible to the
@@ -291,13 +560,13 @@ function hasVsCode() {
   return false;
 }
 
-function installVsCode() {
+async function installVsCode() {
   if (hasVsCode()) return true;
 
   info("Visual Studio Code missing - installing...");
 
   if (isWin) {
-    const installed = installWithWingetOrChoco("Microsoft.VisualStudioCode", "vscode");
+    const installed = await installWithWingetOrChoco("Microsoft.VisualStudioCode", "vscode");
     if (!installed) return false;
     if (hasVsCode()) return true;
     // One more PATH refresh in case the shim landed after winget returned.
@@ -350,7 +619,7 @@ function installVsCode() {
   return false;
 }
 
-function installCopilotCli() {
+async function installCopilotCli() {
   if (hasRunnableCopilot()) return true;
 
   info("Copilot CLI missing - installing official @github/copilot npm package...");
@@ -374,7 +643,7 @@ function installCopilotCli() {
   // typically already have this wired up through the official package above).
   if (isWin) {
     if (!has("gh")) {
-      installWithWingetOrChoco("GitHub.cli", "gh");
+      await installWithWingetOrChoco("GitHub.cli", "gh");
     }
     if (has("gh")) {
       runQuiet("gh", ["extension", "remove", "github/gh-copilot"]);
@@ -408,71 +677,101 @@ step("Checking prerequisites");
 let allGood = true;
 
 // Node
+const nodeStarted = Date.now();
 const nodeVer = process.versions.node;
 const nodeMajor = parseInt(nodeVer.split(".")[0], 10);
 if (nodeMajor >= 18) {
   ok(`Node.js v${nodeVer}`);
+  pushSummary("Node.js", "Ready", nodeStarted, `v${nodeVer}`);
 } else {
   fail(`Node.js v${nodeVer} is too old (need >= 18)`);
+  pushSummary("Node.js", "Unsupported", nodeStarted, `Detected v${nodeVer}`);
   allGood = false;
 }
 
 // npm
+const npmStarted = Date.now();
 if (has("npm")) {
-  ok(`npm ${npmVersion() || "(version unknown)"}`);
+  const npmVer = npmVersion() || "(version unknown)";
+  ok(`npm ${npmVer}`);
+  pushSummary("npm", "Ready", npmStarted, npmVer);
 } else {
   fail("npm not found");
+  pushSummary("npm", "Missing", npmStarted, "Install Node.js LTS");
   allGood = false;
 }
 
 // git
+{
+const started = Date.now();
 if (has("git")) {
   ok(version("git") || "git");
+  pushSummary("Git", "Already installed", started);
+} else if (!CHECK_ONLY && await installGit()) {
+  ok(version("git") || "git");
+  pushSummary("Git", "Installed", started, "Auto-installed via package manager");
 } else {
   warn("git not found — required for repo operations");
+  pushSummary("Git", CHECK_ONLY ? "Missing" : "Not installed", started, "Manual action required");
+  if (!isWin) {
+    warn("  Install git: https://git-scm.com/downloads");
+  }
+}
 }
 
 // Azure CLI (optional — required only by tasks that call `az`).
-let hasAz = has("az");
+const hadAzInitially = has("az");
+let hasAz = hadAzInitially;
+const azStarted = Date.now();
 if (!hasAz && !CHECK_ONLY) {
-  hasAz = installAzureCli();
+  hasAz = await installAzureCli();
 }
 if (hasAz) {
   const azRaw = version("az", "version");
   // `az version` outputs JSON; extract the azure-cli value.
   const azVer = azRaw?.match(/"azure-cli":\s*"([^"]+)"/)?.[1] || azRaw?.replace(/[{}\s]/g, "") || "Azure CLI";
   ok(`Azure CLI ${azVer}`);
+  pushSummary("Azure CLI", hadAzInitially ? "Already installed" : "Installed", azStarted, azVer);
 } else {
   warn("Azure CLI (`az`) not found — optional. Install later from https://aka.ms/installazurecliwindows if you need CRM/Azure tasks.");
+  pushSummary("Azure CLI", CHECK_ONLY ? "Missing (optional)" : "Not installed (optional)", azStarted);
 }
 
 // GitHub Copilot CLI — optional; prefer the real `copilot` binary. Fall back
 // to `gh copilot` if available. Never fatal: users can install later.
-let hasCopilot = hasRunnableCopilot();
+const hadCopilotInitially = hasRunnableCopilot() || hasGhCopilot();
+let hasCopilot = hadCopilotInitially;
+const copilotStarted = Date.now();
 if (!hasCopilot && !CHECK_ONLY) {
-  hasCopilot = installCopilotCli();
+  hasCopilot = await installCopilotCli();
 }
 if (hasCopilot) {
   if (hasRunnableCopilot()) {
     ok("GitHub Copilot CLI available (copilot)");
+    pushSummary("Copilot CLI", hadCopilotInitially ? "Already installed" : "Installed", copilotStarted, "copilot");
   } else {
     ok("GitHub Copilot CLI available (gh copilot fallback)");
+    pushSummary("Copilot CLI", hadCopilotInitially ? "Already installed (fallback)" : "Installed (fallback)", copilotStarted, "Using gh copilot fallback");
   }
 } else {
   warn("GitHub Copilot CLI not found — optional. Install later with `npm install -g @github/copilot`.");
+  pushSummary("Copilot CLI", CHECK_ONLY ? "Missing (optional)" : "Not installed (optional)", copilotStarted);
 }
 
 // Visual Studio Code — recommended host for Copilot Chat / agent surfaces.
-// Optional (never fatal), but auto-installed when a package manager is available.
+// Optional (never fatal). Installation is handled interactively in init.js.
 let hasCode = hasVsCode();
-if (!hasCode && !CHECK_ONLY) {
-  hasCode = installVsCode();
-}
+const codeStarted = Date.now();
 if (hasCode) {
   const codeVer = version("code", "--version")?.split("\n")[0] || "VS Code";
   ok(`Visual Studio Code ${codeVer}`);
+  pushSummary("VS Code", "Already installed", codeStarted);
 } else {
-  warn("Visual Studio Code not found — optional. Install later from https://code.visualstudio.com/download.");
+  warn("Visual Studio Code not found — optional.");
+  pushSummary("VS Code", CHECK_ONLY ? "Not installed (optional)" : SUMMARY_PLACEHOLDER, codeStarted, CHECK_ONLY ? "Optional" : "Prompted later in init.js");
+  if (!CHECK_ONLY) {
+    info("You will be prompted during environment setup before any VS Code installation starts.");
+  }
 }
 
 // pwsh (optional, only needed for setup-outlook-rules)
@@ -485,37 +784,72 @@ if (has("pwsh")) {
 }
 
 if (!allGood) {
+  printInstallSummary();
   console.log(`\n${C.red}One or more critical prerequisites are missing. Fix the above and re-run.${C.reset}`);
   process.exit(1);
 }
 
 if (CHECK_ONLY) {
+  printInstallSummary();
   console.log(`\n${C.green}✔ Prereq check complete (no changes made).${C.reset}`);
   process.exit(0);
 }
 
 // ── Step 2: npm install ─────────────────────────────────────────────
 if (!SKIP_INSTALL) {
+  const depsStarted = Date.now();
   step("Installing npm dependencies");
   if (!existsSync(join(ROOT, "package.json"))) {
     fail("package.json not found — are you running this from inside the repo?");
+    pushSummary("npm dependencies", "Failed", depsStarted, "package.json missing");
+    printInstallSummary();
     process.exit(1);
   }
   const rc = npmInstall();
   if (rc !== 0) {
     fail("npm install failed");
+    pushSummary("npm dependencies", "Failed", depsStarted, `Exit code ${rc}`);
+    printInstallSummary();
     process.exit(rc);
   }
   ok("Dependencies installed");
+  pushSummary("npm dependencies", "Installed", depsStarted);
+} else {
+  pushSummary("npm dependencies", "Skipped", Date.now(), "--skip-install");
 }
 
 // ── Step 3: delegate to init.js ─────────────────────────────────────
+const initStarted = Date.now();
 step("Running environment initializer");
-const rc2 = run(process.execPath, [join(ROOT, "scripts", "init.js")]);
+const rc2 = run(process.execPath, [join(ROOT, "scripts", "init.js")], {
+  env: {
+    ...process.env,
+    LCG_DEFER_FINAL_REPORT: "1",
+  },
+});
 if (rc2 !== 0) {
   fail(`init.js exited with code ${rc2}`);
+  pushSummary("Environment initializer", "Failed", initStarted, `Exit code ${rc2}`);
+  if (!hasCode) {
+    updateSummary("VS Code", {
+      status: hasVsCode() ? "Installed" : "Not installed (optional)",
+      note: hasVsCode() ? "Installed during init.js" : "Prompted in init.js",
+    });
+  }
+  printInstallSummary();
   process.exit(rc2);
 }
+pushSummary("Environment initializer", "Completed", initStarted);
 
+if (!hasCode) {
+  const hasCodeAfterInit = hasVsCode();
+  updateSummary("VS Code", {
+    status: hasCodeAfterInit ? "Installed" : "Not installed (optional)",
+    note: hasCodeAfterInit ? "Installed during init.js" : "Prompted in init.js",
+  });
+}
+
+printInstallSummary();
+printFinalPostSummaryPanel();
 console.log(`\n${C.bold}${C.green}✔ Bootstrap complete.${C.reset}`);
 console.log(`  Next: ${C.yellow}npm run task:list${C.reset} to see available automations.`);
