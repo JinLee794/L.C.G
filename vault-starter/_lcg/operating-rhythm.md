@@ -1,3 +1,8 @@
+---
+icon: LiRepeat
+sticker: lucide//repeat
+---
+
 # Operating Rhythm
 
 ## Recurring Cadences

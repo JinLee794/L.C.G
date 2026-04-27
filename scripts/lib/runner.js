@@ -16,6 +16,13 @@
  *     onSuccess?: (ctx) => Promise<void> | void,
  *     customRun?: (ctx) => Promise<number>,   // bypasses the standard loop
  *   }
+ *
+ * Vault-defined passthrough tasks (from scheduled-tasks.md) are simpler:
+ *   {
+ *     name: string,
+ *     promptText: string,   // the raw prompt from the markdown
+ *     passthrough: true,
+ *   }
  */
 
 import { tmpdir } from "node:os";
@@ -169,4 +176,58 @@ async function runValidation(task, artifactPath, log) {
   log(`Validation errors:`);
   for (const e of result.errors) log(`  - ${e}`);
   return false;
+}
+
+/**
+ * Run a vault-defined prompt passthrough — no JS task file needed.
+ *
+ * The prompt text comes directly from the **Prompt:** field in
+ * _lcg/scheduled-tasks.md. {{TODAY}} is substituted automatically.
+ *
+ * @param {Object} vaultTask  Parsed from parse-schedule.js with .promptText
+ * @param {Object} [overrides]
+ * @returns {Promise<number>} exit code
+ */
+export async function runPromptPassthrough(vaultTask, overrides = {}) {
+  const vaultDir = resolveVaultPath();
+  const date = resolveDate(overrides.date);
+  const { log, logFile } = createLogger(vaultTask.name, vaultDir, date);
+
+  if (!vaultTask.prompt) {
+    log(`ERROR: No prompt defined for ${vaultTask.name} in scheduled-tasks.md`);
+    return 1;
+  }
+
+  const bin = resolveCopilotBin();
+  if (!bin) {
+    log("ERROR: copilot CLI not found. Install GitHub Copilot CLI or set COPILOT_CLI_PATH.");
+    return 1;
+  }
+
+  // Substitute {{TODAY}} and {{DATE}} in the prompt
+  let promptText = vaultTask.prompt
+    .replace(/\{\{TODAY\}\}/g, date)
+    .replace(/\{\{DATE\}\}/g, date);
+
+  log(`Starting passthrough: ${vaultTask.name} for ${date}`);
+  log(`Vault: ${vaultDir}`);
+  log(`Prompt (${promptText.length} chars):\n${promptText.substring(0, 200)}…`);
+
+  const logPath = join(tmpdir(), `${vaultTask.name}-${date}.log`);
+
+  const exitCode = await runCopilot({
+    bin,
+    prompt: promptText,
+    vaultDir,
+    logPath,
+    cwd: PROJECT_ROOT,
+  });
+
+  if (exitCode === 0) {
+    log(`${vaultTask.name}: completed successfully.`);
+  } else {
+    log(`${vaultTask.name}: copilot exited with code ${exitCode}`);
+  }
+
+  return exitCode;
 }

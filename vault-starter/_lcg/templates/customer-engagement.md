@@ -1,3 +1,8 @@
+---
+icon: LiHandshake
+sticker: lucide//handshake
+---
+
 # Customer Engagement Deck Template
 
 ## Slide 1: Customer Snapshot

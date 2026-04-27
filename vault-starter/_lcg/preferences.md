@@ -1,3 +1,9 @@
+---
+icon: LiSettings
+sticker: lucide//settings
+lcg_repo: ""
+---
+
 # L.C.G Preferences
 
 ## Working Style

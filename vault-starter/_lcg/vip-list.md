@@ -1,3 +1,8 @@
+---
+icon: LiCrown
+sticker: lucide//crown
+---
+
 # VIP List
 
 ## Tier 1 (Always URGENT)

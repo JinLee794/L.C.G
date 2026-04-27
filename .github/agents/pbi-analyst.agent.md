@@ -13,6 +13,8 @@ agents: [
   'Chief of Staff',
   m365-actions
 ]
+
+model: Claude Opus 4.6 (copilot)
 ---
 You execute medium/heavy Power BI workflows in isolation and return only rendered analysis outputs.
 

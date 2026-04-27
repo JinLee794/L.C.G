@@ -19,6 +19,8 @@ agents: [
   Chief of Staff
 ]
 
+model: Claude Haiku 4.5 (copilot)
+
 user-invocable: true
 ---
 # @m365-actions — Microsoft 365 Action Agent

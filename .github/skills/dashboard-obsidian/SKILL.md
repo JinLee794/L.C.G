@@ -60,6 +60,51 @@ Key frontmatter fields:
 
 ## Plugin Reference
 
+### Icons & Stickers (Iconize Plugin)
+
+All vault notes use Lucide icons via the Iconize plugin. Always add `icon` and `sticker` to frontmatter when creating new notes or dashboards.
+
+| Frontmatter | Format | Shows in |
+|---|---|---|
+| `icon` | `Li` + PascalCase name | File explorer sidebar |
+| `sticker` | `lucide//` + kebab-case name | Note header sticker |
+
+**Standard icon assignments for `_lcg/` config files:**
+
+| File | `icon` | `sticker` |
+|---|---|---|
+| preferences.md | `LiSettings` | `lucide//settings` |
+| scheduled-tasks.md | `LiCalendarCheck` | `lucide//calendar-check` |
+| communication-style.md | `LiMessageSquare` | `lucide//message-square` |
+| learning-log.md | `LiBookOpen` | `lucide//book-open` |
+| operating-rhythm.md | `LiRepeat` | `lucide//repeat` |
+| vip-list.md | `LiCrown` | `lucide//crown` |
+
+**Standard icon assignments for templates:**
+
+| File | `icon` | `sticker` |
+|---|---|---|
+| automation-dashboard.md | `LiLayoutDashboard` | `lucide//layout-dashboard` |
+| meeting-brief.md | `LiClipboardList` | `lucide//clipboard-list` |
+| customer-engagement.md | `LiHandshake` | `lucide//handshake` |
+| update-request.md | `LiSend` | `lucide//send` |
+| weekly-summary.md | `LiNewspaper` | `lucide//newspaper` |
+| town-hall-deck.md | `LiPresentation` | `lucide//presentation` |
+
+**Common icons for vault entities:**
+
+| Entity | `icon` | `sticker` |
+|---|---|---|
+| Customer | `LiBuilding2` | `lucide//building-2` |
+| Project | `LiWrench` | `lucide//wrench` |
+| Opportunity | `LiTarget` | `lucide//target` |
+| Milestone | `LiFlag` | `lucide//flag` |
+| People | `LiUser` | `lucide//user` |
+| Dashboard | `LiLayoutDashboard` | `lucide//layout-dashboard` |
+| Scorecard | `LiGauge` | `lucide//gauge` |
+
+**Rule:** Every new note or dashboard created by the `obsidian-viz` agent MUST include both `icon` and `sticker` in its frontmatter. Pick from the tables above or choose an appropriate Lucide icon from [lucide.dev/icons](https://lucide.dev/icons).
+
 ### Dataview / dataviewjs (Primary)
 
 All dashboard panels render via `dataviewjs` blocks with inline HTML/CSS using `dv.el()` and `createEl()`.
@@ -88,6 +133,21 @@ const safeFmt = (d, fmt) => {
   return dt ? dv.func.dateformat(dt, fmt) : '';
 };
 ```
+
+**Preferences lookup** — use when a dataviewjs block needs paths or configs from `_lcg/preferences.md`:
+
+```js
+// Read L.C.G preferences directly from frontmatter (indexed by Dataview)
+const prefs = dv.page("_lcg/preferences");
+const repoPath = prefs?.lcg_repo;  // → "/abs/path/to/L.C.G"
+```
+
+Preferences are stored as YAML frontmatter properties in `_lcg/preferences.md`. Dataview indexes them natively — no file reads or regex parsing needed. Any dashboard that needs the repo path should use this one-liner pattern.
+
+Available properties:
+- `lcg_repo` — absolute path to L.C.G repo (set automatically during `npm run setup`; used by the automation dashboard to invoke repo scripts directly)
+
+**Important:** The `lcg_repo` path is for running scripts like `scripts/sync-schedule.js` and `scripts/run.js` via Node from within Obsidian. It is NOT the `lcg` CLI binary (which launches Copilot sessions). The automation dashboard resolves a Node binary separately since Obsidian's Electron doesn't inherit the login PATH.
 
 **Common query patterns:**
 

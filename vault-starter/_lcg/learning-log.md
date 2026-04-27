@@ -1,3 +1,8 @@
+---
+icon: LiBookOpen
+sticker: lucide//book-open
+---
+
 # Learning Log
 
 Record corrections and pattern updates here.

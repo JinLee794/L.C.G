@@ -30,7 +30,7 @@ npm install pdf-lib pdfjs-dist canvas
 
 This guide covers PDF processing using Python libraries and command-line tools. For advanced features and JavaScript libraries, see [reference.md](reference.md). For PDF form filling, see [forms.md](forms.md).
 
-**Output directory**: Save generated/merged/split `.pdf` files to `.copilot/docs/` (see `shared-patterns.instructions.md` § Artifact Output Directory). Create the directory with `os.makedirs('.copilot/docs', exist_ok=True)` before writing.
+**Output directory**: Resolve the output path using the three-tier logic in `shared-patterns.instructions.md` § Artifact Output Directory (skill OIL path → `LCG-Artifacts/` via OIL → `.copilot/docs/` fallback). Create the directory before writing if needed.
 
 > **Note:** `scripts/` paths are relative to this skill folder (`.github/skills/pdf/`).
 

@@ -20,7 +20,7 @@
 ## Quick Start (5 Minutes)
 Before you begin, make sure you have:
 
-- [ ] **Microsoft corporate VPN** connected
+- [ ] **GSA (Global Secure Access) or Microsoft VPN** connected
 - [ ] **Microsoft corp account** (e.g., `your-alias@microsoft.com`) for Azure CLI sign-in
 - [ ] **Personal GitHub account** (NOT your `_microsoft` EMU account) for GitHub Packages auth
 - [ ] **GitHub Copilot License** — [Get one here (Microsoft Internal)](https://aka.ms/copilot)
