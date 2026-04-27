@@ -89,21 +89,21 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ![Risk acknowledgement — type yes](image/README/10.jpg)
 
-**11. Sign in to Azure with your *work* account.** A browser pop‑up appears. Pick `your-alias@microsoft.com`. This is the **Azure CLI sign‑in to the Microsoft tenant** — it's how L.C.G. talks to CRM, Power BI, and other Microsoft systems.
+**11. GitHub CLI installs (and you can peek at your install folder).** While `winget` finishes installing GitHub CLI, the L.C.G. folder appears at the path you picked — you can open File Explorer and verify it landed there.
 
-![Azure sign-in — pick your @microsoft.com account](image/README/11.jpg)
+![GitHub CLI installing — folder created in File Explorer](image/README/11.jpg)
 
-**12. Subscription picker — just press Enter.** Accepts the default tenant/subscription.
+**12. Run `az login`? Type `Y` and press Enter.** This is the **Azure CLI sign‑in to the Microsoft tenant** — how L.C.G. talks to CRM, Power BI, and other Microsoft systems.
 
-![Subscription/tenant prompt](image/README/12.jpg)
+![Run az login? Y](image/README/12.jpg)
 
-**13. GitHub auth begins.** Pick **HTTPS** at the protocol prompt, **Yes** to authenticate Git. The installer prints a one‑time code (e.g. `23F2‑0D5E`) and waits.
+**13. Pick your Microsoft *work* account.** A "Let's get you signed in" pop‑up appears. Click your `your-alias@microsoft.com` row, then **Continue**.
 
-![GitHub one-time code](image/README/13.jpg)
+![Sign in — pick your @microsoft.com account](image/README/13.jpg)
 
-**14. Press Enter to open `github.com/login/device`.** Your browser opens — copy the code from the terminal, paste it on the page.
+**14. Subscription/tenant prompt — just press Enter.** Whichever subscription is highlighted is fine; L.C.G. doesn't care, it only needs you authenticated.
 
-![Open the device login URL](image/README/14.jpg)
+![Select a subscription and tenant — press Enter](image/README/14.jpg)
 
 **15. Optional — install VS Code?** Type `Y` or `N`.
 
@@ -119,34 +119,34 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ![Install Obsidian Desktop — Y or N](image/README/16_optional_Y.jpg)
 
-**17. Obsidian installs (if you said Y), then the MCP security notice repeats.** Type `yes` again to continue.
+**17. Obsidian installs (if you said Y), then the MCP security notice appears once more.** Type `yes` again to confirm.
 
-![Obsidian installed + MCP notice](image/README/17.jpg)
+![Obsidian installed + MCP security notice](image/README/17.jpg)
 
-**18. The installer registers MCP servers.** `msx-crm` (CRM) and `oil` (Obsidian Intelligence Layer) are pulled from GitHub Packages — that's why GitHub auth is required.
-
-![Package-based MCP servers + GitHub Packages auth](image/README/18.jpg)
-
-**19. Vault is scaffolded.** Starter templates land under `_lcg/` in your vault.
-
-![Vault scaffolding](image/README/19.jpg)
-
-**20. GitHub Packages auth — sign in with your *personal* account.** A new one‑time code is shown; press Enter to open the browser.
+**18. GitHub Packages auth begins — pick `HTTPS`.** L.C.G. needs GitHub access to pull private MCP server packages (`@microsoft/msx-mcp-server`, `@jinlee794/obsidian-intelligence-layer`). Use arrow keys to highlight **HTTPS**, press Enter.
 
 > [!IMPORTANT]
-> Use your **personal GitHub account** (for example `lvolkov@outlook.com`). **Do NOT** use your `_microsoft` Enterprise Managed User account — it can't see the private packages L.C.G. needs.
+> The yellow box on screen tells you exactly what to do next: **Use your PERSONAL GitHub account** (for example `lvolkov@outlook.com`). **Do NOT** use your `_microsoft` Enterprise Managed User account — it can't see the private packages L.C.G. needs.
 
-![GitHub Packages — one-time code](image/README/20.jpg)
+![GitHub Packages auth — HTTPS + personal account warning](image/README/18.jpg)
 
-**21. Confirm the personal account in the browser.** Click **Continue** next to the right account name (e.g. `lenvolk`). If the page auto‑fills your `_microsoft` account, click **Use a different account** first.
+**19. Authenticate Git with your GitHub credentials? Type `Y`.**
+
+![Authenticate Git — Y](image/README/19.jpg)
+
+**20. Copy the one‑time code, then press Enter to open the browser.** The installer prints something like `23F2‑0D5E` and waits.
+
+![One-time GitHub code](image/README/20.jpg)
+
+**21. In the browser, confirm your *personal* account.** Paste the code on `github.com/login/device`, then click **Continue** next to the personal account (e.g. `lenvolk`). If the page auto‑fills the `_microsoft` account, click **Use a different account** first.
 
 ![Device Activation — confirm personal account](image/README/21.jpg)
 
-**22. Wait while npm dependencies install.** No clicks needed.
+**22. Wait while npm dependencies install.** No clicks needed — `npm install` pulls everything else.
 
 ![npm install progress](image/README/22.jpg)
 
-**23. Authorize the Microsoft org.** GitHub asks for SSO into each Microsoft org so the installer can pull private packages. Click **Authorize** next to **Microsoft**.
+**23. Authorize the Microsoft org (SSO).** GitHub asks you to authorize SSO so the installer can read Microsoft's private packages. Click **Authorize** next to **Microsoft**.
 
 ![Single sign-on — Authorize Microsoft](image/README/23.jpg)
 
@@ -154,11 +154,11 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ![Authorize GitHub CLI](image/README/24.jpg)
 
-**25. Bootstrap complete.** You'll see an installation summary table, then the green "`lcg` CLI installed successfully" panel, then the prompt is back. The `lcg` command is now globally available.
+**25. Bootstrap complete.** You'll see an installation summary table, then the green "`lcg` CLI installed successfully" panel, then your prompt is back. The `lcg` command is now globally available.
 
 ![Installation summary + bootstrap complete](image/README/25.jpg)
 
-**26. (Optional) Open VS Code.** If you installed VS Code, type `code .` from the install folder to open it. MCP servers auto‑start from `.vscode/mcp.json`.
+**26. (Optional) Open VS Code.** If you installed VS Code, type `code .` from the install folder. MCP servers auto‑start from `.vscode/mcp.json`.
 
 ![Opening VS Code from terminal](image/README/26.jpg)
 
