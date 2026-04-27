@@ -45,11 +45,11 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
 
 > 💡 **Two things are optional.** When the installer asks about **VS Code** or **Obsidian Desktop**, type `Y` or `N` — *either is fine*. Both are explained at the relevant step below.
 
-🎥 **Watch the full walkthrough first** *(2 min)* — click the image below to play it in your browser, then follow the numbered steps at your own pace.
+🎥 **Watch the full walkthrough first** *(2 min)* — click the image below; the video opens in a new tab and plays in your browser. Then follow the numbered steps at your own pace.
 
-[![▶ Play install walkthrough video](image/README/1.jpg)](https://github.com/JinLee794/L.C.G/releases/download/walkthrough-video/LCG-part2_final.mp4)
+[![▶ Play install walkthrough video](image/README/1.jpg)](https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/image/README/LCG-part2_final.mp4)
 
-> 📥 Or [download the walkthrough (MP4)](https://github.com/JinLee794/L.C.G/releases/download/walkthrough-video/LCG-part2_final.mp4) and play it locally.
+> 📥 If your browser downloads instead of playing, use the [direct MP4 link](https://raw.githubusercontent.com/JinLee794/L.C.G/lv-installation/image/README/LCG-part2_final.mp4) and open it locally.
 
 **1. Open Windows PowerShell.** Click Start, type "PowerShell", and pick **Windows PowerShell** (the regular one — not the blue ISE).
 
