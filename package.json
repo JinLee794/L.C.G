@@ -34,7 +34,6 @@
     "meeting:followup": "node scripts/run.js meeting-followup",
     "update-request:run": "node scripts/run.js update-request",
     "learning:review": "node scripts/run.js learning-review",
-    "setup": "node scripts/init.js",
     "docs:install": "pip install -r site/requirements.txt",
     "docs:serve": "mkdocs serve -f site/mkdocs.yml",
     "docs:build": "mkdocs build -f site/mkdocs.yml",
@@ -63,9 +62,9 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@azure/identity": "^4.13.0",
+    "@azure/identity": "^4.13.1",
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "mermaid": "^11.13.0",
+    "mermaid": "^11.14.0",
     "openai": "^6.29.0",
     "pptxgenjs": "^4.0.1",
     "unzipper": "^0.12.3",

@@ -1,85 +1,73 @@
 {
-	"servers": {
+	"mcpServers": {
 		"msx": {
-			"type": "stdio",
+			"type": "local",
 			"command": "npx",
 			"args": ["-y", "@microsoft/msx-mcp-server@latest"],
 			"env": {
 				"npm_config_@microsoft:registry": "https://npm.pkg.github.com"
-			}
+			},
+			"tools": ["*"]
 		},
 		"oil": {
-			"type": "stdio",
+			"type": "local",
 			"command": "npx",
 			"args": ["-y", "@jinlee794/obsidian-intelligence-layer@latest", "mcp"],
 			"envFile": "${workspaceFolder}/.env",
 			"env": {
 				"npm_config_@jinlee794:registry": "https://npm.pkg.github.com"
-			}
+			},
+			"tools": ["*"]
 		},
 		"showrunner": {
+			"type": "local",
 			"command": "npx",
 			"args": ["-y", "@jinlee794/showrunner-mcp@latest"],
 			"env": {
 				"npm_config_@jinlee794:registry": "https://npm.pkg.github.com"
-			}
+			},
+			"tools": ["*"]
 		},
-		// Additional MCP servers can be added here, e.g. for specific tools, data sources, or operations.
-		// Highlight the components you'd like and press Ctrl + K + U to uncomment and enable them.
-		// "github": {
-		// 	"type": "http",
-		// 	"url": "https://api.githubcopilot.com/mcp/"
-		// },
-		
-		// "ado": {
-		// 	"type": "stdio",
-		// 	"command": "npx",
-		// 	"args": [
-		// 		"-y",
-		// 		"@azure-devops/mcp",
-		// 		"${input:ado_org}",
-		// 		"-d",	
-		// 		"core",
-		// 		"work",
-		// 		"work-items",
-		// 		"repositories",
-		// 		"pipelines"
-		// 	]
-		// },	
 		"workiq": {
-			"type": "stdio",
+			"type": "local",
 			"command": "npx",
-			"args": ["-y", "@microsoft/workiq@latest", "mcp"]
+			"args": ["-y", "@microsoft/workiq@latest", "mcp"],
+			"tools": ["*"]
 		},
 		"powerbi-remote": {
-            "type": "http",
-            "url": "https://api.fabric.microsoft.com/v1/mcp/powerbi"
-        },
+			"type": "http",
+			"url": "https://api.fabric.microsoft.com/v1/mcp/powerbi",
+			"tools": ["*"]
+		},
 		"calendar": {
 			"type": "http",
 			"url": "https://agent365.svc.cloud.microsoft/agents/tenants/72f988bf-86f1-41af-91ab-2d7cd011db47/servers/mcp_CalendarTools",
-			"headers": {}
+			"headers": {},
+			"tools": ["*"]
 		},
 		"teams": {
 			"type": "http",
 			"url": "https://agent365.svc.cloud.microsoft/agents/tenants/72f988bf-86f1-41af-91ab-2d7cd011db47/servers/mcp_TeamsServer",
-			"headers": {}
+			"headers": {},
+			"tools": ["*"]
 		},
-		"mail":{
+		"mail": {
 			"type": "http",
 			"url": "https://agent365.svc.cloud.microsoft/agents/tenants/72f988bf-86f1-41af-91ab-2d7cd011db47/servers/mcp_MailTools",
-			"headers": {}
+			"headers": {},
+			"tools": ["*"]
 		},
 		"sharepoint": {
 			"type": "http",
 			"url": "https://agent365.svc.cloud.microsoft/agents/tenants/72f988bf-86f1-41af-91ab-2d7cd011db47/servers/mcp_ODSPRemoteServer",
-			"headers": {}
+			"headers": {},
+			"tools": ["*"]
 		},
 		"word": {
 			"type": "http",
 			"url": "https://agent365.svc.cloud.microsoft/agents/tenants/72f988bf-86f1-41af-91ab-2d7cd011db47/servers/mcp_WordServer",
-			"headers": {}
+			"headers": {},
+			"tools": ["*"]
 		}
-
 	}
 }
