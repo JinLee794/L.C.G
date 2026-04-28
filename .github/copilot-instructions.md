@@ -190,5 +190,5 @@ For prompts that say "if file exists replace, if not create":
 ### Rules
 
 - Never write vault notes with `create_file`. That tool writes to the local workspace, not the vault.
-- Binary artifacts (`.pptx`, `.xlsx`, `.docx`, `.pdf`) produced by document-processing skills go to `.copilot/docs/` via `create_file` — those are workspace outputs, not vault notes.
+- **Artifact output** (`.pptx`, `.xlsx`, `.docx`, `.pdf`, `.html`, `.csv`) follows the three-tier resolution in `shared-patterns.instructions.md` § Artifact Output Directory: (1) skill-defined OIL path, (2) `LCG-Artifacts/` in the vault when OIL is available, (3) `.copilot/docs/` when OIL is not available.
 - Always read before writing: use `oil:get_note_metadata` or `oil:read_note_section` to check state before mutating.

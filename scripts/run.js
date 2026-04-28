@@ -28,9 +28,11 @@
 import { resolve, join } from "node:path";
 import { existsSync, readdirSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { runTask } from "./lib/runner.js";
+import { runTask, runPromptPassthrough } from "./lib/runner.js";
+import { loadSchedule, cronToHuman } from "./lib/parse-schedule.js";
 
 const TASKS_DIR = resolve(import.meta.dirname, "tasks");
+const REPO_DIR = resolve(import.meta.dirname, "..");
 
 // ── Parse CLI args ──────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -47,33 +49,128 @@ function param(name) {
 
 // ── List mode ───────────────────────────────────────────────────────
 if (taskName === "list" || !taskName) {
-  const files = readdirSync(TASKS_DIR).filter((f) => f.endsWith(".js"));
-  console.log("\nAvailable tasks:\n");
+  // Try vault-backed schedule first, fall back to task JS files
+  const vaultDir = process.env.VAULT_DIR || process.env.LCG_VAULT_DIR || null;
+  const { tasks: vaultTasks, source, path: schedPath } = loadSchedule(vaultDir, REPO_DIR);
 
   const rows = [];
-  for (const file of files) {
-    const mod = await import(pathToFileURL(join(TASKS_DIR, file)).href);
-    const t = mod.default;
-    const sched = t.schedule
-      ? `${t.schedule.days.join(",")} @ ${t.schedule.time}`
-      : "on-demand";
-    rows.push({ name: t.name, schedule: sched });
+
+  if (vaultTasks.length > 0) {
+    // Vault schedule is source of truth
+    for (const t of vaultTasks) {
+      rows.push({
+        name: t.name,
+        schedule: t.schedule,
+        enabled: t.enabled,
+        description: t.description,
+      });
+    }
+
+    // Also include task JS files not in the vault registry (on-demand tasks)
+    const files = readdirSync(TASKS_DIR).filter((f) => f.endsWith(".js"));
+    const vaultNames = new Set(vaultTasks.map((t) => t.name));
+    for (const file of files) {
+      const mod = await import(pathToFileURL(join(TASKS_DIR, file)).href);
+      const t = mod.default;
+      if (!vaultNames.has(t.name)) {
+        rows.push({
+          name: t.name,
+          schedule: t.schedule
+            ? `${t.schedule.days.join(",")} @ ${t.schedule.time}`
+            : "on-demand",
+          enabled: true,
+          description: "",
+        });
+      }
+    }
+  } else {
+    // Fallback: read from task JS files
+    const files = readdirSync(TASKS_DIR).filter((f) => f.endsWith(".js"));
+    for (const file of files) {
+      const mod = await import(pathToFileURL(join(TASKS_DIR, file)).href);
+      const t = mod.default;
+      const sched = t.schedule
+        ? `${t.schedule.days.join(",")} @ ${t.schedule.time}`
+        : "on-demand";
+      rows.push({ name: t.name, schedule: sched, enabled: true, description: "" });
+    }
   }
 
-  // Align output
-  const maxName = Math.max(...rows.map((r) => r.name.length));
-  for (const r of rows) {
-    console.log(`  ${r.name.padEnd(maxName + 2)} ${r.schedule}`);
+  // Display
+  console.log("\nL.C.G Scheduled Automations\n");
+  if (source !== "none") {
+    console.log(`  📋 Source: ${source === "vault" ? "Obsidian vault" : "repo starter"} (${schedPath})\n`);
   }
-  console.log(`\nUsage: node scripts/run.js <task> [--date YYYY-MM-DD] [--force-weekend]\n`);
+
+  const maxName = Math.max(...rows.map((r) => r.name.length));
+  const maxSched = Math.max(...rows.map((r) => r.schedule.length));
+
+  // Scheduled tasks first, then on-demand
+  const scheduled = rows.filter((r) => r.schedule !== "on-demand");
+  const onDemand = rows.filter((r) => r.schedule === "on-demand");
+
+  if (scheduled.length) {
+    console.log("  Recurring:");
+    for (const r of scheduled) {
+      const status = r.enabled ? "✅" : "⏸️ ";
+      console.log(`    ${status} ${r.name.padEnd(maxName + 2)} ${r.schedule.padEnd(maxSched + 2)} ${r.description ? "— " + r.description : ""}`);
+    }
+    console.log();
+  }
+
+  if (onDemand.length) {
+    console.log("  On-demand:");
+    for (const r of onDemand) {
+      console.log(`    🔧 ${r.name.padEnd(maxName + 2)} ${r.schedule}`);
+    }
+    console.log();
+  }
+
+  console.log(`Usage: node scripts/run.js <task> [--date YYYY-MM-DD] [--force-weekend]`);
+  console.log(`Edit:  _lcg/scheduled-tasks.md in your Obsidian vault to manage schedules\n`);
   process.exit(0);
 }
 
 // ── Load task ───────────────────────────────────────────────────────
+// All tasks route through the vault registry first (passthrough to Copilot).
+// JS task files in scripts/tasks/ are a legacy fallback.
+const vaultDir = process.env.VAULT_DIR || process.env.LCG_VAULT_DIR || null;
+const { tasks: vaultTasks } = loadSchedule(vaultDir, REPO_DIR);
+
+// Match by derived name: LCG-Morning-Triage → morning-triage
+const vaultTask = vaultTasks.find((t) => t.name === taskName);
+
+if (vaultTask && vaultTask.prompt) {
+  console.log(`\n📋 Running: ${vaultTask.id}`);
+  console.log(`   Prompt from: _lcg/scheduled-tasks.md\n`);
+
+  if (flag("dry-run")) {
+    process.env.DRY_RUN = "1";
+    console.log(`[dry-run] Would run: ${vaultTask.name}`);
+    console.log(`[dry-run] Date: ${param("date") || "(today)"}`);
+    console.log(`[dry-run] Schedule: ${vaultTask.schedule}`);
+    console.log(`[dry-run] Prompt:\n${vaultTask.prompt}`);
+    process.exit(0);
+  }
+
+  const overrides = {};
+  if (param("date")) overrides.date = param("date");
+  const exitCode = await runPromptPassthrough(vaultTask, overrides);
+  process.exit(exitCode);
+}
+
+// Fallback: check for legacy JS task file
 const taskFile = join(TASKS_DIR, `${taskName}.js`);
 if (!existsSync(taskFile)) {
   console.error(`Unknown task: ${taskName}`);
-  console.error(`Run "node scripts/run.js list" to see available tasks.`);
+  console.error(`No matching entry in scheduled-tasks.md and no legacy JS file.`);
+  console.error(`\nTo create a task, add a section to _lcg/scheduled-tasks.md:`);
+  console.error(`\n  ## LCG-${taskName.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("-")}`);
+  console.error(`  - **Schedule:** Every weekday at 9:00 AM`);
+  console.error(`  - **Enabled:** true`);
+  console.error(`  - **Description:** What this task does.`);
+  console.error(`  - **Prompt:**`);
+  console.error(`    > Your prompt text here.\n`);
   process.exit(1);
 }
 

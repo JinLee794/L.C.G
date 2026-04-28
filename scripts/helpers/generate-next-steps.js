@@ -8,10 +8,14 @@
  * Auth: `gh auth token` (GitHub CLI) or $GITHUB_TOKEN env var.
  *
  * Usage:
- *   node scripts/helpers/generate-next-steps.js /tmp/sql600-data-2026-04-20.json
- *   node scripts/helpers/generate-next-steps.js /tmp/sql600-data-2026-04-20.json --model gpt-4.1-mini
- *   node scripts/helpers/generate-next-steps.js /tmp/sql600-data-2026-04-20.json --concurrency 5
- *   node scripts/helpers/generate-next-steps.js /tmp/sql600-data-2026-04-20.json --dry-run
+ *   node scripts/helpers/generate-next-steps.js .copilot/docs/sql600-data-2026-04-20.json
+ *   node scripts/helpers/generate-next-steps.js .copilot/docs/sql600-data-2026-04-20.json --model gpt-4.1-mini
+ *   node scripts/helpers/generate-next-steps.js .copilot/docs/sql600-data-2026-04-20.json --batch-size 10
+ *   node scripts/helpers/generate-next-steps.js .copilot/docs/sql600-data-2026-04-20.json --no-batch --concurrency 5
+ *   node scripts/helpers/generate-next-steps.js .copilot/docs/sql600-data-2026-04-20.json --dry-run
+ *
+ * By default, accounts are grouped into batches (--batch-size 10) for fewer API calls.
+ * Use --no-batch to revert to one-call-per-account with --concurrency control.
  *
  * Mutates the input JSON file in-place (same pattern as enrich-sql600-accounts.js).
  * Adds:
@@ -32,19 +36,24 @@ const args = process.argv.slice(2);
 let dataPath = null;
 let model = "gpt-4.1-mini";
 let concurrency = 3;
+let batchSize = 10;
 let dryRun = false;
+let noBatch = false;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--model" && args[i + 1]) model = args[++i];
   else if (args[i] === "--concurrency" && args[i + 1])
     concurrency = parseInt(args[++i], 10) || 3;
+  else if (args[i] === "--batch-size" && args[i + 1])
+    batchSize = parseInt(args[++i], 10) || 10;
+  else if (args[i] === "--no-batch") noBatch = true;
   else if (args[i] === "--dry-run") dryRun = true;
   else if (!args[i].startsWith("-")) dataPath = args[i];
 }
 
 if (!dataPath) {
   console.error(
-    "usage: generate-next-steps.js <sql600-data.json> [--model gpt-4.1-mini] [--concurrency 8] [--dry-run]"
+    "usage: generate-next-steps.js <sql600-data.json> [--model gpt-4.1-mini] [--batch-size 10] [--concurrency 3] [--no-batch] [--dry-run]"
   );
   process.exit(1);
 }
@@ -99,6 +108,23 @@ function buildAccountContext(acct, section, snapshot) {
   if (acct.RenewalQuarter) lines.push(`Renewal Quarter: ${acct.RenewalQuarter}`);
   if (acct.Category) lines.push(`SQL500 Category: ${acct.Category}`);
 
+  // Propensity signals from AzureCustomerAttributes
+  const attr = attrByTpid.get(acct.TPID);
+  if (attr) {
+    const signals = [];
+    if (attr.HasOpenAI === 'Y') signals.push('Has OpenAI workload');
+    if (attr.HasOpenAI_Pipe === 'Y') signals.push('OpenAI in pipeline');
+    if (attr.PTU_Target === 'Y') signals.push('PTU target customer');
+    if (attr.NetNewMigrationTarget === 'Y') signals.push('Net-new migration target');
+    if (attr.TrancheGrowthTarget === 'Y') signals.push('Tranche growth target');
+    if (attr.GHCP_200Plus === 'Y') signals.push('GHCP 200+ target');
+    if (attr.GHCP_200Less === 'Y') signals.push('GHCP <200 target');
+    if (attr['500K_100K_Target']) signals.push(`500K/100K Target: ${attr['500K_100K_Target']}`);
+    if (attr.ESI_Tier) signals.push(`ESI Tier: ${attr.ESI_Tier}`);
+    if (attr.LXP_Category) signals.push(`LXP Category: ${attr.LXP_Category}`);
+    if (signals.length) lines.push(`Propensity Signals: ${signals.join(', ')}`);
+  }
+
   lines.push("");
   lines.push(`Section: ${section}`);
   lines.push(`Portfolio mod coverage: ${snapshot.AcctsWithModPipe || 0}/${(snapshot.AcctsWithModPipe || 0) + (snapshot.AcctsWithoutModPipe || 0)} accounts`);
@@ -106,7 +132,7 @@ function buildAccountContext(acct, section, snapshot) {
   return lines.join("\n");
 }
 
-const SYSTEM_PROMPT = `You are a SQL Server modernization strategist for Microsoft Healthcare accounts in the SQL600 program.
+const SINGLE_SYSTEM_PROMPT = `You are a SQL Server modernization strategist for Microsoft Healthcare accounts in the SQL600 program.
 
 Given an account's metrics, produce ONE concrete recommended next step for SQL modernization.
 
@@ -121,6 +147,22 @@ CONTENT:
 - Reflect the account context (pipeline state, growth, SQL core footprint, renewal timing)
 
 Output ONLY the phrase text. No preamble, no bullets, no markdown.`;
+
+const BATCH_SYSTEM_PROMPT = `You are a SQL Server modernization strategist for Microsoft Healthcare accounts in the SQL600 program.
+
+You will receive a numbered list of accounts with their metrics. For EACH account, produce ONE concrete recommended next step for SQL modernization.
+
+STRICT FORMAT per account:
+- 4 to 10 words only
+- Start with an imperative verb (Initiate, Convert, Attach, Launch, Prioritize, Build, Accelerate)
+- Single short phrase (not a sentence)
+- No account name, no acronyms explanation, no rationale, no punctuation at the end
+- Name the motion explicitly (assessment, migration wave, factory attach, Arc enablement, pipeline conversion)
+- Reflect the account context (pipeline state, growth, SQL core footprint, renewal timing)
+
+Respond with a JSON object where keys are the account numbers (as strings) and values are the next-step phrases.
+Example: {"1": "Initiate factory attach for SQL migration", "2": "Accelerate Arc enablement across SQL estate"}
+Output ONLY valid JSON. No preamble, no markdown fences.`;
 
 function sanitizeNextStep(text) {
   if (!text) return '';
@@ -164,13 +206,57 @@ async function generateNextStep(acct, section, snapshot) {
     const response = await client.chat.completions.create({
       model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: SINGLE_SYSTEM_PROMPT },
         { role: "user", content: userContent },
       ],
       max_tokens: 150,
       temperature: 0.3,
     });
     return sanitizeNextStep(response.choices[0]?.message?.content || '');
+  });
+}
+
+/**
+ * Generate next steps for a batch of accounts in a single API call.
+ * Returns an array of next-step strings aligned to the input batch.
+ */
+async function generateNextStepsBatch(batch, snapshot) {
+  const numbered = batch
+    .map((task, i) => {
+      const ctx = buildAccountContext(task.acct, task.section, snapshot);
+      return `--- Account ${i + 1} ---\n${ctx}`;
+    })
+    .join("\n\n");
+
+  return withRetry(async () => {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: BATCH_SYSTEM_PROMPT },
+        { role: "user", content: numbered },
+      ],
+      max_tokens: 60 * batch.length,
+      temperature: 0.3,
+    });
+
+    const raw = (response.choices[0]?.message?.content || "").trim();
+
+    // Parse JSON response — strip markdown fences if present
+    const jsonStr = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch {
+      // Fallback: if the model returned one step per line instead of JSON
+      console.error("  ⚠️  Batch response was not valid JSON, falling back to line parsing");
+      const lines = raw.split("\n").filter((l) => l.trim());
+      return batch.map((_, i) => sanitizeNextStep(lines[i] || ""));
+    }
+
+    return batch.map((_, i) => {
+      const key = String(i + 1);
+      return sanitizeNextStep(parsed[key] || "");
+    });
   });
 }
 
@@ -234,6 +320,11 @@ async function parallelMap(items, fn, limit) {
 const data = JSON.parse(readFileSync(dataPath, "utf8"));
 const snapshot = data.snapshot || {};
 
+// TPID → attribute lookup for propensity signals
+const attrByTpid = new Map(
+  (data.aioAccountAttributes || []).map((a) => [a.TPID, a])
+);
+
 // Collect all account rows that need next steps
 const tasks = [];
 for (const acct of data.topAccounts || []) {
@@ -250,7 +341,7 @@ for (const acct of data.renewals || []) {
 }
 
 console.log(
-  `Generating next steps for ${tasks.length} accounts using ${model} (concurrency: ${concurrency})...`
+  `Generating next steps for ${tasks.length} accounts using ${model} (${noBatch ? `per-account, concurrency: ${concurrency}` : `batch size: ${batchSize}`})...`
 );
 
 if (dryRun) {
@@ -258,33 +349,86 @@ if (dryRun) {
   for (const t of tasks) {
     console.log(`  [${t.section}] ${t.acct.TopParent || "?"}`);
   }
+  if (!noBatch) {
+    console.log(`  → ${Math.ceil(tasks.length / batchSize)} batched API calls`);
+  }
   console.log(`  + 1 portfolio-level modernization outlook`);
   process.exit(0);
 }
 
-let completed = 0;
-const nextSteps = await parallelMap(
-  tasks,
-  async (task) => {
-    try {
-      const step = await generateNextStep(task.acct, task.section, snapshot);
-      completed++;
-      if (completed % 5 === 0 || completed === tasks.length) {
-        process.stderr.write(`  ${completed}/${tasks.length} accounts done\n`);
+let nextSteps;
+
+if (noBatch) {
+  // Legacy per-account mode
+  let completed = 0;
+  nextSteps = await parallelMap(
+    tasks,
+    async (task) => {
+      try {
+        const step = await generateNextStep(task.acct, task.section, snapshot);
+        completed++;
+        if (completed % 5 === 0 || completed === tasks.length) {
+          process.stderr.write(`  ${completed}/${tasks.length} accounts done\n`);
+        }
+        return step;
+      } catch (err) {
+        console.error(`  ⚠️  Failed for ${task.acct.TopParent}: ${err.message}`);
+        return null;
       }
-      return step;
-    } catch (err) {
-      console.error(`  ⚠️  Failed for ${task.acct.TopParent}: ${err.message}`);
-      return null;
-    }
-  },
-  concurrency
-);
+    },
+    concurrency
+  );
+} else {
+  // Batched mode — group accounts into chunks and process each chunk in one API call
+  nextSteps = new Array(tasks.length).fill(null);
+  const batches = [];
+  for (let i = 0; i < tasks.length; i += batchSize) {
+    batches.push({ start: i, items: tasks.slice(i, i + batchSize) });
+  }
+  console.log(`  Sending ${batches.length} batched requests (${batchSize} accounts each)...`);
+
+  // Process batches with concurrency limit
+  await parallelMap(
+    batches,
+    async (batch, batchIdx) => {
+      try {
+        const results = await generateNextStepsBatch(batch.items, snapshot);
+        for (let j = 0; j < results.length; j++) {
+          nextSteps[batch.start + j] = results[j];
+        }
+        process.stderr.write(`  Batch ${batchIdx + 1}/${batches.length} done (${results.filter(Boolean).length}/${batch.items.length} steps)\n`);
+      } catch (err) {
+        console.error(`  ⚠️  Batch ${batchIdx + 1} failed: ${err.message}`);
+      }
+    },
+    concurrency
+  );
+}
 
 // Write NextStep back into account rows
 for (let i = 0; i < tasks.length; i++) {
   if (nextSteps[i]) {
     tasks[i].acct.NextStep = nextSteps[i];
+  }
+}
+
+// Propagate NextStep to overlapping accounts that were deduped.
+// Build TPID → NextStep lookup from all processed tasks, then fill gaps
+// in gapAccounts and renewals that share a TPID with an already-processed account.
+const stepByTpid = new Map();
+for (const t of tasks) {
+  if (t.acct.NextStep && t.acct.TPID) {
+    stepByTpid.set(t.acct.TPID, t.acct.NextStep);
+  }
+}
+for (const acct of data.gapAccounts || []) {
+  if (!acct.NextStep && acct.TPID && stepByTpid.has(acct.TPID)) {
+    acct.NextStep = stepByTpid.get(acct.TPID);
+  }
+}
+for (const acct of data.renewals || []) {
+  if (!acct.NextStep && acct.TPID && stepByTpid.has(acct.TPID)) {
+    acct.NextStep = stepByTpid.get(acct.TPID);
   }
 }
 

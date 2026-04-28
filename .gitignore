@@ -96,3 +96,4 @@ evals/traces/captured/
 # Auto-generated tool definitions (regenerated from live MCP servers)
 evals/generated/
 .copilot
+.vault

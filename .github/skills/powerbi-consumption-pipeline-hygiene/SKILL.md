@@ -35,7 +35,7 @@ argument-hint: 'Optionally specify TPID list, account roster, segment filter, or
 | Tool | Purpose |
 |---|---|
 | `powerbi-remote:GetReportMetadata` | Confirm semantic model ID |
-| `powerbi-remote:GetSemanticModelSchema` | Schema discovery (skip when schema-mapping.md is current) |
+| `powerbi-remote:GetSemanticModelSchema` | **NEVER call.** Schema fully mapped in [schema-mapping.md](schema-mapping.md). Large PBI models fail with `MPC -32603` parsing errors. If a column error occurs, fail with a message to update schema-mapping.md — do not auto-discover. |
 | `powerbi-remote:ExecuteQuery` | Execute DAX queries |
 | `mail:CreateDraftMessage` | Outlook follow-up drafts (Step 7 only, user-requested) |
 | `oil:get_note_metadata` | Check vault note existence before write |
@@ -87,7 +87,7 @@ A single query verifies PBI access and resolves the current fiscal year.
 
 1. Call `powerbi-remote:GetReportMetadata` to confirm the semantic model ID matches `f71df8c0-e435-4354-b444-e4014e964b5f`.
 2. Execute the auth + FY resolution query from [schema-mapping.md](schema-mapping.md) § Auth Query. If it fails → stop (auth issue).
-3. **Skip `GetSemanticModelSchema`** — schema is fully mapped in [schema-mapping.md](schema-mapping.md). Only call if model ID changed or a query fails with an unknown column error.
+3. **NEVER call `GetSemanticModelSchema`** — schema is fully mapped in [schema-mapping.md](schema-mapping.md). Large PBI models fail with `MPC -32603` parsing errors. If a column error occurs, fail with a message to update schema-mapping.md — do not auto-discover.
 4. Store the resolved FY label (e.g., `"FY26"`) as `<CURRENT_FY>` for all subsequent queries.
 
 ### Step 2 — Seller Scope Confirmation
@@ -188,7 +188,7 @@ Single-account reviews (by TPID) automatically include Pipeline + Opportunity + 
 
 | Condition | Action |
 |---|---|
-| Schema column names differ from expected | Call `GetSemanticModelSchema`; adapt DAX |
+| Schema column names differ from expected | Fail with error. NEVER call `GetSemanticModelSchema` — update schema-mapping.md manually |
 | Query returns zero results | Check seller scope — model may not include your accounts |
 | User provides TPID list | Add TPID filter to all queries from Step 3 onward |
 | User requests pillar breakdown | Execute Step 9 (pillar drill-down) |

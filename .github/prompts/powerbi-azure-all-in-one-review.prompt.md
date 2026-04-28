@@ -10,6 +10,16 @@ Analyze my Azure portfolio using the **MSA_AzureConsumption_Enterprise** Power B
 2. **Which opportunities have the highest chance to convert?** — Ranked by stage, commitment, and movement signals
 3. **What can I do to close my gap?** — Actionable recommendations from account attributes and pipeline state
 
+## ⚠️ Data Access Warning
+
+Before proceeding, confirm with the user:
+
+> **Heads up:** The Azure All-in-One model has RLS and security restrictions that may return incomplete or partial data for some accounts (e.g., missing budget attainment, limited account coverage, or empty service breakdowns). Results should be treated as directional, not exhaustive.
+>
+> **Proceed with AIO portfolio review? (y/n)**
+
+If the user declines, stop and suggest alternative approaches (e.g., `powerbi-sql600-hls` for SQL-scoped analysis, or direct CRM queries for opportunity-level data).
+
 ## Configuration
 
 > **Managers**: Fork this file and update these values for your team's model and scope.
@@ -80,7 +90,7 @@ Build a `<SCOPE_FILTER>` from the user's choices. Always include these base filt
 'DimViewType'[ViewType] = "Curated"
 ```
 
-### Step 2 — Pull ACR Actuals + Budget (Gap to Target)
+### Step 2a — Pull ACR Actuals per Account
 
 ```dax
 EVALUATE
@@ -90,15 +100,35 @@ TOPN(
         SUMMARIZECOLUMNS(
             'DimCustomer'[TPAccountName],
             'DimCustomer'[TPID],
-            "ACR_YTD", 'M_ACR'[$ ACR],
-            "ACR_LCM", 'M_ACR'[$ ACR Last Closed Month],
-            "Budget_Attain_YTD", 'M_ACR'[% ACR Budget Attain (YTD)]
+            "ACR_YTD", [$ ACR],
+            "ACR_LCM", [$ ACR Last Closed Month]
         ),
         <SCOPE_FILTER>
     ),
     [ACR_YTD], DESC
 )
 ```
+
+### Step 2b — Pull Budget Attainment per ATU
+
+> **Important**: `[% ACR Budget Attain (YTD)]` is a territory-level measure. It returns 0% or null when grouped by individual account. Always query at the ATU level and cross-reference with account ACR from Step 2a.
+
+```dax
+EVALUATE
+CALCULATETABLE(
+    SUMMARIZECOLUMNS(
+        'DimAccountSummaryGroupingDscOCDM'[ATUName],
+        'DimAccountSummaryGroupingDscOCDM'[ATUGroup],
+        "ACR_YTD", [$ ACR],
+        "ACR_LCM", [$ ACR Last Closed Month],
+        "Budget_Attain_YTD", [% ACR Budget Attain (YTD)],
+        "Accounts", [# Accounts]
+    ),
+    <SCOPE_FILTER>
+)
+```
+
+To see budget attainment broken down by pillar within each ATU, add `'Distinct Strategic Pillar'[SuperStrategicPillar]` to the grouping columns.
 
 ### Step 3 — Pull Pipeline Summary
 
@@ -110,11 +140,11 @@ TOPN(
         SUMMARIZECOLUMNS(
             'DimCustomer'[TPAccountName],
             'DimCustomer'[TPID],
-            "Pipe_All", 'M_ACRPipe'[$ Consumption Pipeline All],
-            "Pipe_WoW_Change", 'M_ACRPipe'[$ Consumption Pipeline All WoW Change],
-            "Qualified_Pipe", 'M_ACRPipe'[$ Qualified Pipeline Prior Week all],
-            "Committed_Pipe", 'M_ACRPipe'[$ Consumption Committed Pipeline Prior Week All],
-            "Milestones", 'M_ACRPipe'[# Milestones]
+            "Pipe_All", [$ Consumption Pipeline All],
+            "Pipe_WoW_Change", [$ Consumption Pipeline All WoW Change],
+            "Qualified_Pipe", [$ Qualified Pipeline Prior Week all],
+            "Committed_Pipe", [$ Consumption Committed Pipeline Prior Week All],
+            "Milestones", [# Milestones]
         ),
         'DimDate'[FY_Rel] = "FY",
         'DimViewType'[ViewType] = "Curated",
@@ -182,15 +212,22 @@ CALCULATETABLE(
 
 ### Step 6 — Analyze: Gap to Target
 
-Merge Step 2 (ACR + budget) with Step 3 (pipeline) per account:
+Merge Step 2a (ACR per account) with Step 3 (pipeline) for the account-level view. Use Step 2b (budget attainment per ATU) for territory-level gap signals — budget attainment does **not** decompose to individual accounts.
 
-| Account | TPID | ACR YTD | ACR LCM | Budget Attain% | Pipeline ($) | Committed Pipe ($) | Pipe WoW Δ | Milestones | Gap Signal |
-|---|---|---|---|---|---|---|---|---|---|
+**Account-level table** (from Steps 2a + 3):
+
+| Account | TPID | ACR YTD | ACR LCM | Pipeline ($) | Committed Pipe ($) | Pipe WoW Δ | Milestones | Gap Signal |
+|---|---|---|---|---|---|---|---|---|
+
+**Territory-level attainment** (from Step 2b):
+
+| ATU | ATU Group | ACR YTD | Budget Attain% | Accounts |
+|---|---|---|---|---|
 
 **Gap Signal logic:**
-- **Ahead** — Budget attainment ≥ 100% YTD
-- **On track** — Budget attainment 80–99% with positive pipeline and WoW growth
-- **At risk** — Budget attainment < 80%, or pipeline declining WoW, or thin milestone coverage (< 3)
+- **Ahead** — ATU budget attainment ≥ 100% YTD
+- **On track** — ATU budget attainment 80–99% with positive pipeline and WoW growth across constituent accounts
+- **At risk** — ATU budget attainment < 80%, or pipeline declining WoW, or thin milestone coverage (< 3 per account)
 - **Needs pipeline** — ACR present but fewer than 2 active milestones
 - **Stalled** — No WoW pipeline movement and no stage changes in Step 4 data
 
@@ -253,4 +290,4 @@ For each account with gap signal "At risk", "Needs pipeline", or "Stalled", comb
 - Model: MSA_AzureConsumption_Enterprise (`726c8fed-...`)
 - Filters applied: list user's scope selections
 - Date context: report the `DimDate[Wk_Rel]` and `DimDate[Month_Rel]` from latest data
-- Note: "Budget measures reflect org-level targets. Account-level attainment is derived from the `% ACR Budget Attain (YTD)` measure."
+- Note: "`% ACR Budget Attain (YTD)` is a territory-level measure that resolves at the ATU grain, not per-account. Account-level gap signals are inferred from ACR + pipeline data; attainment percentages come from Step 2b (ATU-level)."

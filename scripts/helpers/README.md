@@ -14,6 +14,7 @@ Reusable Node.js CLI scripts for normalizing, scoring, and formatting M365 data 
 | `audit-sales-play.js` | Cross-ref classified pipeline with CRM sales play + detect wins | Classified JSON + CRM JSON (+ optional previous + normalized mail) | Exception report (JSON or Markdown) with wins |
 | `generate-next-steps.js` | LLM-generated SQL modernization next steps per account | SQL600 data JSON (post-enrich) | Mutated JSON with `NextStep` per account + `_aiInsight.modernizationOutlook` |
 | `resolve-deal-teams.js` | Join CRM bulk data into compact account summaries with named deal team roles and risk signals | Combined CRM JSON (opps + deal teams + milestones + systemusers) | Grouped accounts with resolved names, signals, summary |
+| `normalize-aio.js` | Normalize raw AIO PBI daxQueries response for SQL600 HLS | PBI daxQueries JSON (QA-BULK + QA2) | `{ aioAccountMoM, aioBudgetAttainment, aioServiceBreakdown }` |
 
 ## Common Workflow
 
@@ -103,4 +104,23 @@ node scripts/helpers/resolve-deal-teams.js /tmp/intake-opps-$DATE.json \
 # Filter options:
 node scripts/helpers/resolve-deal-teams.js /tmp/intake-opps-$DATE.json --filter gap     # zero-pipeline only
 node scripts/helpers/resolve-deal-teams.js /tmp/intake-opps-$DATE.json --filter at-risk  # at-risk only
+```
+
+### AIO Cross-Reference (SQL600 HLS)
+```bash
+DATE=$(date +%F)
+
+# 1. Agent sends QA-BULK + QA2 as a single daxQueries call to AIO model
+#    Saves raw response to /tmp/aio-raw-$DATE.json
+
+# 2. Normalize: splits bulk into MoM + budget, tags pillar breakdown
+node scripts/helpers/normalize-aio.js /tmp/aio-raw-$DATE.json --pretty \
+  > /tmp/aio-normalized-$DATE.json
+
+# 3. Merge into existing SQL600 data file for report generation
+node scripts/helpers/normalize-aio.js /tmp/aio-raw-$DATE.json \
+  --merge /tmp/sql600-data-$DATE.json
+
+# 4. Generate HTML report (now has AIO data injected)
+node scripts/helpers/generate-sql600-report.js /tmp/sql600-data-$DATE.json
 ```

@@ -1,107 +1,202 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+/**
+ * lcg — Global CLI entry point for L.C.G.
+ *
+ * A single binary that resolves Copilot CLI (via Agency or direct),
+ * sets the working directory to the repo root so MCP servers, agents,
+ * and skills are auto-detected, and supports multiple invocation modes.
+ *
+ * Modes:
+ *   lcg                           # interactive Copilot CLI session
+ *   lcg -p "morning triage"       # run a prompt non-interactively
+ *   lcg run <task>                # run a scheduled task by name
+ *   lcg run <task> --dry-run      # preview what a task would do
+ *   lcg schedule sync             # sync OS scheduler from vault registry
+ *   lcg schedule status           # show scheduler sync state
+ *   lcg schedule uninstall        # remove all LCG OS schedules
+ *   lcg list                      # list all registered tasks
+ *   lcg <any copilot args>        # pass-through to copilot CLI
+ *
+ * Environment:
+ *   OBSIDIAN_VAULT / OBSIDIAN_VAULT_PATH — vault dir (auto-attached)
+ *   COPILOT_CLI_PATH — override copilot binary location
+ */
+
+import { spawnSync, execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveCopilotBin } from "../scripts/lib/copilot.js";
 
-const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const args = process.argv.slice(2);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, "..");
+const isWindows = process.platform === "win32";
 
-function needsShell(cmd) {
-  if (process.platform !== "win32") return false;
-  // On Node 20+ Windows, spawning .cmd/.bat with shell:false throws EINVAL.
-  // Also use the shell for bare command names (e.g. "gh", "copilot") because
-  // PATHEXT resolution requires it.
-  if (/\.(cmd|bat)$/i.test(cmd)) return true;
-  if (!/[\\/]/.test(cmd) && !/\.exe$/i.test(cmd)) return true;
-  return false;
+// ── Parse sub-commands ──────────────────────────────────────────────
+const argv = process.argv.slice(2);
+const subcommand = argv[0]?.toLowerCase();
+
+// Route to internal sub-commands before falling through to copilot
+if (subcommand === "run" || subcommand === "list" || subcommand === "schedule") {
+  handleSubcommand(subcommand, argv.slice(1));
+} else {
+  // Default: launch copilot CLI session with all args forwarded
+  launchCopilot(argv);
 }
 
-function quoteWinArg(arg) {
-  if (arg === "") return '""';
-  if (!/[\s"&|<>^%]/.test(arg)) return arg;
-  return `"${String(arg).replace(/"/g, '\\"')}"`;
-}
+// ── Sub-command handlers ────────────────────────────────────────────
 
-function run(cmd, cmdArgs, opts = {}) {
-  return new Promise((resolveRun) => {
-    const useShell = opts.shell ?? needsShell(cmd);
-
-    // When running through a Windows shell, spawn() doesn't escape arguments
-    // for us. Do it explicitly so spaces / special chars survive.
-    let spawnCmd = cmd;
-    let spawnArgs = cmdArgs;
-    if (useShell && process.platform === "win32") {
-      const quoted = [cmd, ...cmdArgs].map(quoteWinArg).join(" ");
-      spawnCmd = quoted;
-      spawnArgs = [];
+function handleSubcommand(cmd, args) {
+  switch (cmd) {
+    case "run": {
+      // lcg run <task> [--date YYYY-MM-DD] [--dry-run]
+      const script = resolve(REPO_ROOT, "scripts", "run.js");
+      runNode([script, ...args]);
+      break;
     }
+    case "list": {
+      // lcg list → node scripts/run.js list
+      const script = resolve(REPO_ROOT, "scripts", "run.js");
+      runNode([script, "list"]);
+      break;
+    }
+    case "schedule": {
+      // lcg schedule sync|status|uninstall|dry
+      const schedScript = resolve(REPO_ROOT, "scripts", "sync-schedule.js");
+      const action = args[0]?.toLowerCase();
+      const schedArgs = [schedScript];
+      if (action === "status") schedArgs.push("--status");
+      else if (action === "uninstall") schedArgs.push("--uninstall");
+      else if (action === "dry" || action === "dry-run") schedArgs.push("--dry-run");
+      // "sync" or no arg = default (just run it)
+      runNode(schedArgs);
+      break;
+    }
+  }
+}
 
-    const child = spawn(spawnCmd, spawnArgs, {
-      cwd: ROOT,
-      env: process.env,
-      stdio: "inherit",
-      windowsHide: true,
-      ...opts,
-      shell: useShell,
-    });
-    child.on("exit", (code) => resolveRun(code ?? 0));
-    child.on("error", () => resolveRun(1));
+/**
+ * Run a Node.js script using the same node binary that's running this CLI.
+ * Uses process.execPath so nvm/homebrew/system node all work consistently.
+ */
+function runNode(args) {
+  const result = spawnSync(process.execPath, args, {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      OBSIDIAN_VAULT_PATH: process.env.OBSIDIAN_VAULT || process.env.OBSIDIAN_VAULT_PATH || "",
+    },
   });
+  if (result.error) {
+    console.error(`Failed to run: ${result.error.message}`);
+    process.exit(1);
+  }
+  process.exit(result.status ?? 1);
 }
 
-async function hasGhCopilot() {
-  const code = await run("gh", ["copilot", "--help"], { stdio: "ignore" });
-  return code === 0;
-}
+// ── Copilot CLI launcher ────────────────────────────────────────────
 
-async function main() {
-  let bin = resolveCopilotBin();
+function launchCopilot(userArgs) {
+  const copilotArgs = ["--allow-all-tools", "--add-dir", REPO_ROOT];
 
-  if (process.platform === "win32" && bin === "copilot") {
-    const where = spawnSync("where", ["copilot"], { encoding: "utf-8" });
-    if (where.status === 0) {
-      const candidates = (where.stdout || "")
-        .split(/\r?\n/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const preferred = candidates.find((p) => /\.(cmd|exe)$/i.test(p));
-      if (preferred) {
-        bin = preferred;
-      } else {
-        // Only PowerShell shims are present and may be blocked by policy.
-        bin = null;
+  // Attach vault if set
+  const vaultDir = process.env.OBSIDIAN_VAULT || process.env.OBSIDIAN_VAULT_PATH;
+  if (vaultDir) {
+    copilotArgs.push("--add-dir", vaultDir);
+  }
+
+  copilotArgs.push(...userArgs);
+
+  let result;
+
+  if (hasAgency()) {
+    result = spawnSync("agency", ["copilot", ...copilotArgs], {
+      cwd: REPO_ROOT,
+      stdio: "inherit",
+      shell: isWindows,
+    });
+  } else {
+    const copilot = findCopilotCli();
+    if (copilot) {
+      result = spawnSync(copilot, copilotArgs, {
+        cwd: REPO_ROOT,
+        stdio: "inherit",
+        shell: isWindows,
+      });
+    } else {
+      printInstallHelp();
+      console.log("Falling back to VS Code...\n");
+      result = spawnSync("code", [REPO_ROOT], {
+        stdio: "inherit",
+        shell: isWindows,
+      });
+      if (result.error) {
+        console.error("VS Code ('code') also not found in PATH.");
+        console.error("Open this repo manually: " + REPO_ROOT);
+        process.exit(1);
       }
+      process.exit(result.status ?? 0);
     }
   }
 
-  if (bin) {
-    const code = await run(bin, args);
-    if (code === 0) {
-      process.exit(0);
-    }
-    // If the detected binary is not runnable in this shell (e.g. blocked
-    // PowerShell shim), continue to gh copilot fallback.
-    console.log("Detected Copilot binary did not run successfully. Trying gh copilot fallback...");
-  }
-
-  // Fallback for environments where standalone `copilot` is absent:
-  // use GitHub CLI extension and install it automatically if needed.
-  let ghCopilotReady = await hasGhCopilot();
-  if (!ghCopilotReady) {
-    console.log("GitHub Copilot CLI not found. Attempting to enable gh copilot...");
-    await run("gh", ["extension", "install", "github/gh-copilot"]);
-    ghCopilotReady = await hasGhCopilot();
-  }
-
-  if (!ghCopilotReady) {
-    console.error("Copilot CLI is unavailable. Install GitHub Copilot Chat in VS Code or run: gh extension install github/gh-copilot");
+  if (result.error && result.error.code === "ENOENT") {
+    printInstallHelp();
     process.exit(1);
   }
 
-  const code = await run("gh", ["copilot", ...args]);
-  process.exit(code);
+  process.exit(result.status ?? 1);
 }
 
-await main();
+// ── CLI detection helpers ───────────────────────────────────────────
+
+function hasAgency() {
+  try {
+    execSync("agency --help", { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findCopilotCli() {
+  if (process.env.COPILOT_CLI_PATH) {
+    if (existsSync(process.env.COPILOT_CLI_PATH)) return process.env.COPILOT_CLI_PATH;
+  }
+
+  try {
+    const which = isWindows ? "where copilot" : "which copilot";
+    const result = execSync(which, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    if (result) return result.split("\n")[0];
+  } catch { /* not on PATH */ }
+
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  const candidates = [
+    resolve(home, "Library/Application Support/Code - Insiders/User/globalStorage/github.copilot-chat/copilotCli/copilot"),
+    resolve(home, "Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot"),
+    resolve(home, "AppData/Roaming/Code - Insiders/User/globalStorage/github.copilot-chat/copilotCli/copilot.exe"),
+    resolve(home, "AppData/Roaming/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot.exe"),
+    resolve(home, ".config/Code - Insiders/User/globalStorage/github.copilot-chat/copilotCli/copilot"),
+    resolve(home, ".config/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot"),
+  ];
+
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+function printInstallHelp() {
+  console.log("GitHub Copilot CLI ('copilot') is required.\n");
+  console.log("Install options:");
+  console.log("  macOS:  brew install copilot-cli");
+  console.log("  npm:    npm install -g @github/copilot");
+  if (isWindows) {
+    console.log("\nAgency CLI (optional):");
+    console.log('  iex "& { $(irm aka.ms/InstallTool.ps1)} agency"');
+  } else {
+    console.log("\nAgency CLI (optional):");
+    console.log("  curl -sSfL https://aka.ms/InstallTool.sh | sh -s agency");
+  }
+  console.log("\nMore info: https://aka.ms/agency\n");
+}

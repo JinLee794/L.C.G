@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Enrich /tmp/sql600-data-<date>.json with AccountId (and TPID where missing)
+// Enrich .copilot/docs/sql600-data-<date>.json with AccountId (and TPID where missing)
 // for every row in topAccounts, renewals, gapAccounts so the HTML generator
 // emits direct MSX entityrecord links.
 

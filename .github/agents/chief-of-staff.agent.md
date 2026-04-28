@@ -13,8 +13,6 @@ tools: [
 ]
 agents: ["*"]
 
-model: GPT-5.4 (copilot)
-
 handoffs:
   - label: M365 Write Operations
     agent: m365-actions

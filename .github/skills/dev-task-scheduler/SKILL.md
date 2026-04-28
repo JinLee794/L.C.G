@@ -19,9 +19,8 @@ Manages recurring L.C.G automations through a single registry file (`_lcg/schedu
 │  _lcg/scheduled-tasks.md  (vault registry)      │
 │  ─────────────────────────────────────────────── │
 │  Declarative task definitions:                   │
-│    • Name, cron expression, enabled flag         │
-│    • Prompt text or prompt file reference         │
-│    • Task runner command                          │
+│    • Name, schedule, enabled flag               │
+│    • Prompt text                                │
 │  ─────────────────────────────────────────────── │
 │  Persisted via OIL MCP → vault                   │
 │  Fallback: .copilot/scheduled-tasks.md → repo    │
@@ -91,9 +90,8 @@ updated: 2026-04-16
 # Scheduled Tasks
 
 ## LCG-Morning-Triage
-- **Cron:** `0 7 * * 1-5`
+- **Schedule:** Every weekday at 7:00 AM
 - **Enabled:** true
-- **Runner:** `node scripts/run.js morning-triage`
 - **Description:** Daily weekday morning triage — pulls calendar, mail, CRM data and produces the daily note.
 - **Prompt:**
   > Run morning triage for today. Load config gate, pull calendar and mail
@@ -102,9 +100,8 @@ updated: 2026-04-16
   > Daily/{{TODAY}}.md.
 
 ## LCG-Milestone-Review
-- **Cron:** `0 8 * * 1`
+- **Schedule:** Every Monday at 8:00 AM
 - **Enabled:** true
-- **Runner:** `node scripts/run.js milestone-review`
 - **Description:** Weekly Monday milestone health check across direct reports.
 - **Prompt:**
   > Run milestone review. Resolve running user, discover direct reports, pull
@@ -112,9 +109,8 @@ updated: 2026-04-16
   > flags for at-risk, overdue, uncommitted, and high-value clusters.
 
 ## LCG-Portfolio-Review
-- **Cron:** `0 14 * * 3`
+- **Schedule:** Every Wednesday at 2:00 PM
 - **Enabled:** true
-- **Runner:** `node scripts/run.js portfolio-review`
 - **Description:** Wednesday pipeline review — opportunity hygiene, close-date deltas, risk flags.
 - **Prompt:**
   > Run portfolio review. Pull active opportunities by owner, flag stage
@@ -122,9 +118,8 @@ updated: 2026-04-16
   > status brief grouped by account or stage.
 
 ## LCG-Vault-Hygiene
-- **Cron:** `0 16 * * 5`
+- **Schedule:** Every Friday at 4:00 PM
 - **Enabled:** false
-- **Runner:** `node scripts/run.js vault-hygiene`
 - **Description:** Friday afternoon vault cleanup — stale notes, orphaned links, missing frontmatter.
 - **Prompt:**
   > Run vault hygiene check. Scan for stale customer notes (no updates >30d),
@@ -136,14 +131,29 @@ updated: 2026-04-16
 
 | Field | Required | Format | Notes |
 |---|---|---|---|
-| **Section heading** | Yes | `## LCG-<Name>` | H2, must start with `LCG-` |
-| **Cron** | Yes | Standard 5-field cron | `min hour dom month dow` — use [crontab.guru](https://crontab.guru) for validation |
+| **Section heading** | Yes | `## LCG-<Name>` | H2, must start with `LCG-`. Task name derived from heading (e.g., `LCG-My-Task` → `my-task`) |
+| **Schedule** | Yes | Plain English or cron | `Every weekday at 7:00 AM` (preferred) or `0 7 * * 1-5` (legacy) |
 | **Enabled** | Yes | `true` / `false` | Disabled tasks are preserved but skipped by the installer |
-| **Runner** | Yes | Shell command | The command `install-scheduler.js` wires into the OS scheduler |
 | **Description** | Yes | One-line summary | What the task does, for inventory display |
-| **Prompt** | Yes | Blockquote (`>`) | The full agent prompt executed when the task fires. Multi-line blockquotes supported |
+| **Prompt** | Yes | Blockquote (`>`) | The full agent prompt sent to GitHub Copilot when the task fires |
 
-### Cron Expression Quick Reference
+### Schedule Patterns (Human-Readable — Preferred)
+
+| You type | Agent sees (cron) |
+|---|---|
+| `Every weekday at 7:00 AM` | `0 7 * * 1-5` |
+| `Every day at 6:00 AM` | `0 6 * * *` |
+| `Every Monday at 8:00 AM` | `0 8 * * 1` |
+| `Every Wednesday at 2:00 PM` | `0 14 * * 3` |
+| `Every Mon, Wed, Fri at 9:00 AM` | `0 9 * * 1,3,5` |
+| `Every Friday at 3:00 PM` | `0 15 * * 5` |
+| `Every weekend at 10:00 AM` | `0 10 * * 0,6` |
+
+The parser in `scripts/lib/parse-schedule.js` converts human-readable schedules to cron notation automatically. The Dataview block in `scheduled-tasks.md` shows a live preview of the translation for verification.
+
+### Legacy Cron Expression Reference
+
+Legacy `**Cron:**` fields are still accepted but `**Schedule:**` with plain English is preferred for readability.
 
 ```
 ┌───────────── minute (0–59)
@@ -184,11 +194,11 @@ Try OIL MCP first, fall back to local file:
 
 Extract all H2 task blocks and present as a markdown table:
 
-| Name | Cron | Enabled | Description | Runner |
-|---|---|---|---|---|
-| LCG-Morning-Triage | `0 7 * * 1-5` | ✅ | Daily weekday morning triage | `node scripts/run.js morning-triage` |
-| LCG-Milestone-Review | `0 8 * * 1` | ✅ | Weekly Monday milestone health check | `node scripts/run.js milestone-review` |
-| LCG-Vault-Hygiene | `0 16 * * 5` | ❌ | Friday vault cleanup | `node scripts/run.js vault-hygiene` |
+| Name | Schedule | Enabled | Description |
+|---|---|---|---|
+| LCG-Morning-Triage | Every weekday at 7:00 AM | ✅ | Daily weekday morning triage |
+| LCG-Milestone-Review | Every Monday at 8:00 AM | ✅ | Weekly Monday milestone health check |
+| LCG-Vault-Hygiene | Every Friday at 4:00 PM | ❌ | Friday vault cleanup |
 
 ### Step 3 — Sprawl Detection
 
@@ -197,9 +207,8 @@ Before proceeding to any create/update, check for:
 | Check | Condition | Action |
 |---|---|---|
 | **Duplicate name** | Proposed task name already exists in registry | Show existing entry, ask: update or pick a new name? |
-| **Overlapping schedule** | Another `LCG-*` task runs the same runner within ±5 min of proposed cron time | Warn and suggest consolidating |
+| **Overlapping schedule** | Another `LCG-*` task runs within ±5 min of proposed schedule | Warn and suggest consolidating |
 | **Disabled stale tasks** | `Enabled: false` entries with no recent edits | Flag for cleanup or removal |
-| **Orphaned runners** | Runner references a task file in `scripts/tasks/` that doesn't exist | Flag for repair |
 
 Present findings as a checklist before proceeding.
 
@@ -213,9 +222,8 @@ Only after completing Flow 1.
 
 | Parameter | Required | Default | Notes |
 |---|---|---|---|
-| Task name | Yes | — | Must start with `LCG-` |
-| Cron expression | Yes | — | Standard 5-field cron |
-| Runner command | Yes | — | Typically `node scripts/run.js <task>` |
+| Task name | Yes | — | Must start with `LCG-`. Derived task ID is lowercased (e.g., `LCG-Daily-Sync` → `daily-sync`) |
+| Schedule | Yes | — | Plain English preferred (e.g., `Every weekday at 8:00 AM`) |
 | Description | Yes | — | One-line summary |
 | Prompt | Yes | — | Full agent prompt as blockquote |
 | Enabled | No | `true` | Set `false` to register without activating |
@@ -233,8 +241,7 @@ Before writing, display:
 ║  TASK REGISTRATION PLAN                      ║
 ╠══════════════════════════════════════════════╣
 ║  Name:      LCG-Daily-Sync                   ║
-║  Cron:      0 8 * * 1-5  (Mon-Fri 8:00 AM)  ║
-║  Runner:    node scripts/run.js daily-sync    ║
+║  Schedule:  Every weekday at 8:00 AM         ║
 ║  Enabled:   true                              ║
 ║  Conflicts: None detected                     ║
 ╚══════════════════════════════════════════════╝
@@ -363,11 +370,11 @@ systemctl status cron
 
 ### General
 ```bash
-# Test the runner command directly
+# Test a task in dry-run mode
 node scripts/run.js <task> --dry-run
 
-# Verify the task file exists
-ls scripts/tasks/<task>.js
+# List all registered tasks
+node scripts/run.js list
 ```
 
 ---
@@ -398,7 +405,7 @@ Is OIL MCP available?
 
 All output MUST be structured for readability:
 
-- **Inventory** → Markdown table with columns: Name, Cron, Enabled, Description, Runner.
+- **Inventory** → Markdown table with columns: Name, Schedule, Enabled, Description.
 - **Single task detail** → Key-value box (see registration plan format above).
 - **Sprawl warnings** → Checkbox list with recommended actions.
 - **Confirmations** → Single-line status: `✅ LCG-Morning-Triage | 0 7 * * 1-5 | Enabled | Installed`

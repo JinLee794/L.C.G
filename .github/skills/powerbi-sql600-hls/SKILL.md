@@ -33,20 +33,24 @@ Designed for Patty (exec consumer) to pull updates at any time and get an execut
 
 ## Runtime Contract
 
+> **\u26a0\ufe0f Max 4 DAX queries per `ExecuteQuery` call.** Exceeding this limit returns error `-32602`. All batch sizes below respect this constraint.
+
 | Tool | Purpose | Expected Calls |
 |---|---|---|
-| `powerbi-remote:ExecuteQuery` | SQL600 PBI data retrieval | **2–3** (snapshot + details + optional trend) |
-| `powerbi-remote:ExecuteQuery` | AIO cross-reference queries | **1–2** (MoM trend + service breakdown + budget) |
+| `powerbi-remote:ExecuteQuery` | SQL600 aggregate queries — Call 1A (Q1+Q3+Q4+Q4B) | **1** |
+| `powerbi-remote:ExecuteQuery` | SQL600 aggregate queries — Call 1B (Q2+Q10-DETAIL) | **1** |
+| `powerbi-remote:ExecuteQuery` | SQL600 detail queries (Q5+Q6+Q8, optionally Q7/Q9) | **1** (parallel with AIO) |
+| `powerbi-remote:ExecuteQuery` | AIO cross-reference (QA-BULK+QA2+QA3-ATTR, 3 queries) | **1** (parallel with Step 2) |
 | `oil:get_note_metadata` | Check vault note existence before write | 1 |
 | `oil:create_note` / `oil:atomic_replace` | Persist readout to vault | 1 |
 
-> **Two PBI models.** SQL600 queries use model `c848b220-eaf2-42e0-b6d2-9633a6e39b37`. AIO queries use model `726c8fed-367a-4249-b685-e4e22ca82b3d`. Always pass the correct `semanticModelId`.
+> **Two PBI models.** SQL600 queries (Q1–Q10-DETAIL) use model `c848b220-eaf2-42e0-b6d2-9633a6e39b37`. AIO queries use model `726c8fed-367a-4249-b685-e4e22ca82b3d`. Always pass the correct `semanticModelId`.
 
 ### Removed from Runtime
 
 | Tool | Why Removed |
 |---|---|
-| `powerbi-remote:GetSemanticModelSchema` | Schema fully mapped in [schema-mapping.md](schema-mapping.md). Never call. |
+| `powerbi-remote:GetSemanticModelSchema` | **NEVER call.** Schema fully mapped in [schema-mapping.md](schema-mapping.md). The SQL600 model's schema response is too large for the MCP tool — always fails with `MPC -32603` parsing error at `verifiedAnswers[0].Bindings.Values`. |
 | `powerbi-remote:GetReportMetadata` | Report ID hardcoded. Auth verified by first `ExecuteQuery`. |
 
 ## Configuration
@@ -98,68 +102,116 @@ Determine which **readout mode** the user wants:
 
 Default to **Full** if ambiguous.
 
-### Step 1 — Combined Portfolio Snapshot + Industry Ranking (1 PBI call)
+### Step 1 — Combined Portfolio Snapshot + Industry Ranking (2 PBI calls)
 
-Execute 4 queries in one `ExecuteQuery` call using `daxQueries` array. See [query-rules.md](query-rules.md) § Q1–Q4.
+> **⚠️ Max 4 DAX queries per `ExecuteQuery` call.** The PBI remote tool enforces a hard limit of 4 `daxQueries` per call. Split Step 1's 6 queries into two calls.
 
-1. **Q1 — Portfolio KPI Snapshot**: ACR (LCM), Pipeline (Committed/Uncommitted/Qualified), Qualified Opps, Total Opps, Modernization Opps, Pipeline Penetration %, SQL TAM, SQL Cores, Annualized Growth, WoW Change, Accounts With/Without Mod Pipeline, Factory Attach %
-2. **Q2 — Industry Ranking**: All SQL600 industries by ACR LCM — validates HLS position
-3. **Q3 — Vertical Breakdown**: Health Payor / Provider / Pharma / MedTech with account counts, ACR, committed pipeline
-4. **Q4 — ACR Monthly Trend**: FY26 month-by-month ACR for HLS SQL600 — shows trajectory
+**Call 1A** (4 queries):
+1. **Q1 — Portfolio KPI Snapshot**: ACR (LCM), Pipeline (Committed/Uncommitted/Qualified), Qualified Opps, Total Opps, Modernization Opps, SQL TAM, SQL Cores, WoW Change, Accounts With/Without Mod Pipeline, Factory Attach %
+2. **Q3 — Vertical Breakdown**: Health Payor / Provider / Pharma / MedTech with account counts, ACR, committed pipeline
+3. **Q4 — ACR Monthly Trend**: FY26 month-by-month ACR for HLS SQL600 — shows trajectory
+4. **Q4B — Vertical Monthly Trend**: FY26 monthly ACR by Vertical (closed months only). Store as `verticalTrend[]`.
+
+**Call 1B** (2 queries):
+5. **Q2 — Industry Ranking**: All SQL600 industries by ACR LCM — validates HLS position
+6. **Q10-DETAIL — Per-Account ACR by Strategic Pillar** ⭐: Consumption ACR broken down by strategic pillar per account. **Primary source for service pillar mix and SQL-adjacent % in the report.** Store results as `sql600PillarBreakdown[]` in the data JSON.
 
 If any query fails with auth error → stop, show auth recovery message.
 
-### Step 2 — Detail Queries (1–2 PBI calls, conditional by mode)
+### Steps 2 + 2.5 — Detail Queries + AIO Cross-Reference (parallel if AIO opted in)
+
+> **⚠️ Parallelization.** Steps 2 and 2.5 target **different PBI models** and have **no data dependency on each other** — both only need the TPID list, which is available from Q10-DETAIL (Step 1). If the user opted in to AIO, run them as **parallel tool calls** (two `ExecuteQuery` calls issued in the same turn). If the user declined AIO, run Step 2 only.
+
+#### Step 2 — Detail Queries (1–2 PBI calls, conditional by mode)
 
 Based on readout mode from Step 0, execute detail queries from [query-rules.md](query-rules.md) § Q5–Q9. Use `daxQueries` array to batch up to 4 per call.
 
 | Query | Gate Condition | What It Returns |
 |---|---|---|
-| **Q5 — Top 15 Accounts** | Always (Full, Accounts) | TPID, TopParent, Vertical, Segment, FieldAreaShorter, ACR LCM, Pipeline, Annualized Growth |
+| **Q5 — Top 15 Accounts** | Always (Full, Accounts) | TPID, TopParent, Vertical, Segment, FieldAreaShorter, ACR LCM, Pipeline |
 | **Q6 — Renewal Exposure** | Full, Renewal | SQL500 Target List accounts with renewal quarters, SQL Cores, Arc status |
 | **Q7 — Modernization Pipeline** | Full, Modernization | Accounts with mod pipeline, factory attach, qualified mod pipe without factory |
 | **Q8 — Gap Accounts** | Full | Accounts in SQL600 HLS with zero committed pipeline (GCP leakage risk) |
 | **Q9 — Top Opportunities** | Full, Account Drill | Opportunity detail with stage, owner, commitment, pipeline ACR |
 
-### Step 2.5 — AIO Cross-Reference (1–2 PBI calls against AIO model)
+#### Step 2.5 — AIO Cross-Reference (1 PBI call against AIO model) — OPTIONAL
 
-> **Gate condition:** Run for **Full**, **Trend**, **AIO Deep Dive**, and **Account Drill** modes.
+> **Gate condition:** Eligible for **Full**, **Trend**, **AIO Deep Dive**, and **Account Drill** modes.
 > Skip for **Accounts**, **Renewal**, **Modernization**, **Ranking** modes.
+>
+> **User opt-in required.** Before running AIO queries, ask the user:
+>
+> > "Include Azure All-in-One (AIO) cross-reference? Note: this model has RLS and security restrictions that may return incomplete data for some accounts. The SQL600 report will still render correctly without it — Q10-DETAIL already covers service pillar mix. Include AIO? (y/n)"
+>
+> If the user declines (or does not respond), **skip Step 2.5 entirely** and proceed to Step 3. The report renders all core sections without AIO data.
 
-After Step 2, query the **Azure All-in-One** (MSA_AzureConsumption_Enterprise) model to enrich SQL600 accounts with full Azure consumption data. See [query-rules.md](query-rules.md) § QA0–QA3.
+Query the **Azure All-in-One** (MSA_AzureConsumption_Enterprise) model to enrich SQL600 accounts with full Azure consumption data and propensity signals. See [query-rules.md](query-rules.md) § QA-BULK + QA2 + QA3-ATTR.
+
+> **⚠️ Per-account pillar ACR is already covered by Q10-DETAIL** (Step 1). AIO QA2 is now **optional enrichment** — it can provide sub-pillar granularity and solution play detail, but is NOT required for the service pillar mix chart. If QA2 returns empty, duplicated, or pipeline-only data, the report still renders correctly using Q10-DETAIL data in `sql600PillarBreakdown`.
 
 **Sequence:**
-1. **Build TPID list** — Collect unique TPIDs from topAccounts + renewals + gapAccounts.
-2. **AIO Batch 1** — Run QA0 (DimDate probe) + QA1 (account MoM ACR) + QA3 (budget attainment) in one `ExecuteQuery` call. Use QA0's result to resolve `<MONTH_COL>` for QA1.
-3. **AIO Batch 2** — Run QA2 (service pillar × account ACR breakdown). If QA2 errors, fall back to QA2-ALT (pipeline-only breakdown).
+1. **Build TPID list from Q10-DETAIL** — Extract unique TPIDs from `sql600PillarBreakdown[]` (Q10-DETAIL results from Step 1). This covers all 43 HLS SQL600 accounts — no need to wait for Q5/Q6/Q8. Record the count (expected: ~43).
+2. **Single AIO call** — Send QA-BULK + QA2 + QA3-ATTR in one `ExecuteQuery` call using `daxQueries` array (3 queries — within the 4-query limit). `MonthStartDate` is hardcoded (cached in schema-mapping.md) — no schema probe needed.
+3. **Fallback** — If QA2 errors inside the batch, retry with QA-BULK + QA3-ATTR (drop QA2 only, 2 queries). Do NOT fall back to QA2-PIPE — pipeline-only pillar data is misleading (tiny values, incomplete coverage). Q10-DETAIL provides the pillar breakdown.
+4. **Save + normalize + merge** — This step is **mandatory** when generating an HTML report (Step 4). Save the raw PBI response, normalize, and merge immediately:
+   ```bash
+   # Save raw AIO response to temp file (agent writes the JSON)
+   # Then normalize and merge into the SQL600 data file:
+   node scripts/helpers/normalize-aio.js <aio-raw-file> --merge <sql600-data-file> --quarters 4 --top 30
+   ```
+   The `--quarters 4` flag keeps only the last 4 quarters of MoM data. The `--top 30` flag keeps only the top 30 accounts by total ACR, filtering all arrays (MoM, budget, breakdown, attributes) to that set. This keeps the exec report focused.
+
+   > **⚠️ Do NOT manually read the raw PBI response.** The `normalize-aio.js` script accepts the raw MCP `ExecuteQuery` response directly (including the `{ executionResult: { Tables: [...] } }` shape). Save the response to a file and pipe it through the script — never read it line-by-line in chat.
+
+   Do NOT defer this to later. The merge must happen **before** `enrich-sql600-accounts.js` and `generate-sql600-report.js` run.
+5. **Validate coverage** — After `normalize-aio.js` prints its summary, check:
+   - **Account coverage**: Compare returned unique TPIDs against the TPID list from step 1. If < 50% of TPIDs returned data, note "AIO coverage limited to N of M accounts — some TPIDs may not exist in the AIO model" in the output.
+   - **Budget data**: If all `BudgetAttainPct` values are 0 or null, note "Budget attainment data unavailable in current AIO refresh" — the generator handles this gracefully (shows "No data" instead of false red flags).
+   - **Service breakdown**: If `pillarOutputRows` is 0 despite QA2 running, note "AIO service pillar breakdown unavailable." The generator omits the pillar bar chart section when data is empty.
+   - **Account attributes**: If `aioAccountAttributes` is empty, note "Account propensity attributes unavailable." The report and LLM steps handle missing attributes gracefully.
 
 | Query | What It Returns | JSON Field |
 |---|---|---|
-| **QA0** | DimDate column names | *(used to template QA1/QA2)* |
-| **QA1** | Account × Month ACR time series | `aioAccountMoM[]` |
+| **QA-BULK** | Account × Month ACR + budget attainment (merged QA1+QA3) | `aioAccountMoM[]` + `aioBudgetAttainment[]` (client-side split) |
 | **QA2/QA2-ALT** | Account × StrategicPillar × Month ACR (or pipeline) | `aioServiceBreakdown[]` |
-| **QA3** | Account-level budget attainment | `aioBudgetAttainment[]` |
+| **QA3-ATTR** | Account propensity flags (OpenAI, PTU, migration, ESI, GHCP) | `aioAccountAttributes[]` |
+
+> **⚠️ CRITICAL — Do not skip the merge.** The most common AIO data gap is the agent running the queries successfully but failing to save the raw response and run `normalize-aio.js --merge`. The HTML report cannot render AIO sections without the merged arrays. If you ran the AIO queries, you MUST persist the response and merge before proceeding.
 
 **SQL600 workload tagging:** After QA2 results arrive, tag each row with `SQLRelevant: true` if the `StrategicPillar` is `"Data & AI"` or `"Infra"`, or if the `SolutionPlay` matches `"Migrate & Modernize"` or `"Infra and Database Migration to Azure"`. See [schema-mapping.md](schema-mapping.md) § SQL600-Relevant Service Mapping.
 
 ### Step 3 — Synthesize Executive Readout
 
-Assemble the data into the narrative structure defined in [output-template.md](output-template.md). Key synthesis rules:
+Assemble the data into the narrative structure defined in [output-template.md](output-template.md). The readout follows a **cover page → detail drill** pattern: the Executive Summary gives the full picture in two minutes, then detail sections provide the evidence.
 
-1. **Lead with the headline number** — ACR LCM + MoM trajectory direction (↑/↓/→)
-2. **Industry ranking** — State HLS's actual rank and how it compares to the SQL600 average on pipeline penetration and annualized growth. Report the position neutrally (ahead of / in line with / behind the average). Do NOT inject tone or reuse prior framings ("laggard", "correcting the narrative", "finally outperforming"). Let the numbers carry the message.
-3. **Correlate supporting signals** — When a metric stands out (high/low rank, large WoW move, sharp MoM change, gap-account concentration), look across sections for 1–2 correlated data points that reinforce or complicate the picture (e.g., committed pipe vs. renewal exposure, mod pipeline coverage vs. factory attach, top-account concentration vs. gap accounts). Surface the correlation as an observation, not a causal claim.
-4. **DBC framing** — Frame pipeline and modernization through Database Compete lens
-4. **GCP competitive** — Call out gap accounts (no pipeline) as GCP leakage risk
-5. **Renewal urgency** — Flag Q3/Q4 renewal accounts with SQL Cores and current pipeline coverage
-6. **WoW delta** — Show Realized ACR + Baseline + Pipe week-over-week movement with $ and direction
-7. **Top accounts** — Highlight 5–7 accounts by ACR, growth trajectory, or risk, and include a concrete recommended SQL modernization next step for each (pre-computed by `generate-next-steps.js` using GitHub Models API)
-8. **AI-forward modernization insight** — Surface a portfolio-level insight connecting modernization execution to downstream AI enablement readiness (pre-computed by `generate-next-steps.js`)
-9. **Azure consumption deep dive (AIO)** — When AIO data is available, present:
-   - **Account MoM heatmap**: Show ACR progression across months for top accounts. Highlight MoM direction (↑/↓/→) and flag accounts with declining trajectories
-   - **Service pillar mix**: For each account, show the ACR split by Azure strategic pillar (Data & AI, Infra, etc.). **Highlight SQL600-relevant pillars** (Data & AI, Infra) to show what percentage of each account's Azure spend is on SQL-adjacent services
-   - **Budget attainment overlay**: Flag accounts below 80% budget attainment — these need pipeline acceleration
-   - **Cross-model correlation**: Where the SQL600 model shows zero committed pipeline but AIO shows active ACR, note the disconnect (account is consuming but not investing in modernization pipeline)
+#### Executive Summary (cover page)
+
+Write the Executive Summary **first** — it is the primary deliverable. A reader who stops after the summary should still understand:
+- Where HLS stands (ACR, rank, growth trajectory)
+- Pipeline health and concentration risk
+- Renewal exposure and the accounts that matter most
+- The key execution lever (factory attach / mod pipeline)
+- Whether momentum is sustainable
+
+Derive every claim from this readout's data. Do NOT reuse prior-run framings. Recompute positions and comparisons each time.
+
+#### Detail section synthesis rules
+
+1. **Headline** — ACR LCM + MoM direction + annualized growth + WoW delta + pipeline penetration. One-line DBC narrative comparing HLS to SQL600 average.
+2. **KPI Snapshot** — Compact inline callouts (not a table). Group related metrics on one line with `·` separators.
+3. **Industry ranking** — State HLS's actual rank. Report position neutrally. No injected tone or recycled framings.
+4. **Correlate supporting signals** — When a metric stands out, look across sections for 1–2 correlated data points. Surface as observation, not causal claim.
+5. **DBC framing** — Frame pipeline and modernization through Database Compete lens.
+6. **GCP competitive** — Call out gap accounts (no pipeline) as GCP leakage risk.
+7. **Renewal urgency** — Flag Q3/Q4 renewal accounts with SQL Cores, pipeline coverage, and **status badges** (🔴 AT RISK / ⚠️ NO PIPE / ✅ covered).
+8. **WoW delta** — Show week-over-week movement with $ and direction.
+9. **Top accounts** — Streamlined table (omit TPID column) with concrete recommended SQL modernization next step per account (pre-computed by `generate-next-steps.js`).
+10. **AI-forward modernization insight** — Portfolio-level insight connecting modernization to downstream AI enablement (pre-computed by `generate-next-steps.js`).
+11. **Azure consumption deep dive (AIO)** — When AIO data is available, present:
+    - **Account MoM heatmap**: ACR progression across months, MoM direction, declining trajectory flags
+    - **Service pillar mix**: ACR split by strategic pillar, SQL-adjacent % highlighted
+    - **Budget attainment overlay**: Flag accounts below 80% attainment with SQL600 pipeline context
+    - **Cross-model correlation**: Where SQL600 shows zero pipeline but AIO shows active ACR, note the disconnect
 
 ### Step 4 — Present & Persist
 
@@ -174,38 +226,46 @@ Assemble the data into the narrative structure defined in [output-template.md](o
 When the user says "html report", "dashboard", "rich report", or "exec report":
 
 1. Collect all PBI query results into a single JSON object matching the schema below
-2. Write JSON to `/tmp/sql600-data-<YYYY-MM-DD>.json`
-3. Enrich with MSX `AccountId` (required for clickable deep links):
-   `node scripts/helpers/enrich-sql600-accounts.js /tmp/sql600-data-<YYYY-MM-DD>.json`
-4. Generate LLM-backed recommended next steps and AI-enablement outlook (parallel, uses GitHub Models API):
-   `node scripts/helpers/generate-next-steps.js /tmp/sql600-data-<YYYY-MM-DD>.json`
+2. Write JSON to `.copilot/docs/sql600-data-<YYYY-MM-DD>.json`
+3. **AIO merge** — If Step 2.5 ran, the AIO data should already be merged (Step 2.5 §4). If not, run it now:
+   `node scripts/helpers/normalize-aio.js .copilot/docs/aio-raw-<YYYY-MM-DD>.json --merge .copilot/docs/sql600-data-<YYYY-MM-DD>.json --quarters 4 --top 30 --check`
+   The `--check` flag validates TPID coverage against the SQL600 data and prints warnings for missing TPIDs, empty budget data, and pillar granularity. All three AIO array counts must be > 0.
+4. Enrich with MSX `AccountId` (required for clickable deep links):
+   `node scripts/helpers/enrich-sql600-accounts.js .copilot/docs/sql600-data-<YYYY-MM-DD>.json`
+5. Generate LLM-backed recommended next steps and AI-enablement outlook (parallel, uses GitHub Models API):
+   `node scripts/helpers/generate-next-steps.js .copilot/docs/sql600-data-<YYYY-MM-DD>.json`
    - Uses `gpt-4.1-mini` by default (cheap/fast). Override with `--model <name>`.
    - Runs account-level prompts in parallel (`--concurrency 8` default).
    - Adds `NextStep` to each account row and `_aiInsight.modernizationOutlook` to the JSON.
    - Use `--dry-run` to preview without API calls.
-5. Run: `node scripts/helpers/generate-sql600-report.js /tmp/sql600-data-<YYYY-MM-DD>.json`
-6. Output lands in `.copilot/docs/sql600-hls-readout-<YYYY-MM-DD>.html`
-7. Open in browser for preview; printable to PDF via Cmd+P
+6. Run: `node scripts/helpers/generate-sql600-report.js .copilot/docs/sql600-data-<YYYY-MM-DD>.json`
+7. Output lands in the resolved artifact directory per `shared-patterns.instructions.md` § Artifact Output Directory (default filename: `sql600-hls-readout-<YYYY-MM-DD>.html`)
+8. Open in browser for preview; printable to PDF via Cmd+P
 
 > **Theme picker baked in.** Every generated report includes an inline palette switcher at the bottom of the page with 12 themes (default purple, red/orange/yellow/green/blue/indigo/violet, gold, pink, rainbow, light) plus a 🎉 PARTY MODE 🎉 button that flashes, cycles colors, rains confetti, and shakes the header. Selection persists per-browser via `localStorage` (`sql600-palette`). Switcher is hidden in print and respects `prefers-reduced-motion`. The header gradient and corner glow re-theme with the chosen palette via `--header-gradient` / `--header-glow` CSS variables.
 
 > **AIO data in JSON:** If Step 2.5 ran, the JSON file should include `aioAccountMoM`, `aioServiceBreakdown`, and `aioBudgetAttainment` arrays. The HTML generator renders these as an "Azure Consumption Deep Dive" section with a MoM heatmap, service pillar breakdown, and budget attainment overlay. If the AIO arrays are missing or empty, the section is omitted gracefully.
 
 **JSON input schema** for `generate-sql600-report.js`:
+
+> **Note on computed fields:** `AnnualizedGrowth` and `PipelinePenetration` are no longer sourced from PBI (measures removed from model as of Apr 2026). `AnnualizedGrowth` is computed by the report generator from AIO `aioAccountMoM` data using `(latestClosedACR − June2025ACR) × 12`. `PipelinePenetration` is computed as `AcctsWithModPipe / AccountCount`. Both fields are `null` in the PBI query results and populated during report generation.
+
 ```json
 {
   "generated": "YYYY-MM-DD",
-  "snapshot": { "ACR_LCM": number, "ACR_YoY_Pct": "string", "AnnualizedGrowth": number, "PipeCommitted": number, "PipeUncommitted": number, "PipeQualified": number, "QualifiedOpps": number, "TotalOpps": number, "ModernizationOpps": number, "PipelinePenetration": "string", "SQLTotalTAM": number, "SQLCores": number, "AcctsWithModPipe": number, "AcctsWithoutModPipe": number, "FactoryAttach": "string", "WoW_Change": number, "AccountCount": number },
+  "snapshot": { "ACR_LCM": number, "ACR_YoY_Pct": "string", "AnnualizedGrowth": "number|null (computed from AIO)", "PipeCommitted": number, "PipeUncommitted": number, "PipeQualified": number, "QualifiedOpps": number, "TotalOpps": number, "ModernizationOpps": number, "PipelinePenetration": "number|null (computed)", "SQLTotalTAM": number, "SQLCores": number, "AcctsWithModPipe": number, "AcctsWithoutModPipe": number, "FactoryAttach": "string", "WoW_Change": number, "AccountCount": number },
   "ranking": [{ "Industry": "string", "ACR_LCM": number, "AccountCount": number }],
-  "verticals": [{ "Vertical": "string", "AccountCount": number, "ACR_LCM": number, "PipeCommitted": number, "PipeUncommitted": number, "AnnualizedGrowth": number, "ModOpps": number }],
-  "trend": [{ "FiscalMonth": "YYYY-MM-DD", "FiscalQuarter": "string", "ACR": number }],
-  "topAccounts": [{ "TopParent": "string", "TPID": number, "AccountId": "guid", "Vertical": "string", "Segment": "string", "ACR_LCM": number, "PipeCommitted": number|null, "PipeUncommitted": number|null, "AnnualizedGrowth": number, "QualifiedOpps": number|null, "TotalOpps": number|null, "SQLCores": number|null, "NextStep": "string (from generate-next-steps.js)" }],
+  "verticals": [{ "Vertical": "string", "AccountCount": number, "ACR_LCM": number, "PipeCommitted": number, "PipeUncommitted": number, "AnnualizedGrowth": "number|null (computed from AIO)", "ModOpps": number }],
+  "trend": [{ "FiscalMonth": "YYYY-MM-DD", "FiscalQuarter": "string", "ACR": number, "IsClosed": boolean }],
+  "verticalTrend": [{ "Vertical": "string", "FiscalMonth": "YYYY-MM-DD", "ACR": number }],
+  "topAccounts": [{ "TopParent": "string", "TPID": number, "AccountId": "guid", "Vertical": "string", "Segment": "string", "ACR_LCM": number, "PipeCommitted": "number|null", "PipeUncommitted": "number|null", "AnnualizedGrowth": "number|null (computed from AIO)", "QualifiedOpps": "number|null", "TotalOpps": "number|null", "SQLCores": "number|null", "NextStep": "string (from generate-next-steps.js)" }],
   "renewals": [{ "TopParent": "string", "TPID": number, "AccountId": "guid", "Category": "string", "RenewalQuarter": "string|null", "SQLCores": number, "ArcEnabled": "Yes|No", "ACR_LCM": number|null, "PipeCommitted": number|null, "NextStep": "string (from generate-next-steps.js)" }],
   "gapAccounts": [{ "TopParent": "string", "TPID": number, "AccountId": "guid", "Vertical": "string", "ACR_LCM": number|null, "PipeUncommitted": number|null, "SQLCores": number|null, "NextStep": "string (from generate-next-steps.js)" }],
   "_aiInsight": { "modernizationOutlook": "string (from generate-next-steps.js)" },
   "aioAccountMoM": [{ "TPID": number, "Account": "string", "FiscalMonth": "string", "ACR": number }],
-  "aioServiceBreakdown": [{ "TPID": number, "Account": "string", "StrategicPillar": "string", "SolutionPlay": "string|null", "ACR": number|null, "PipelineACR": number|null, "SQLRelevant": boolean }],
-  "aioBudgetAttainment": [{ "TPID": number, "Account": "string", "ACR_YTD": number, "ACR_LCM": number, "BudgetAttainPct": number|null }]
+  "aioServiceBreakdown": [{ "TPID": number, "Account": "string", "StrategicPillar": "string", "SolutionPlay": "string|null", "PipelineACR": number|null, "SQLRelevant": boolean }],
+  "aioBudgetAttainment": [{ "TPID": number, "Account": "string", "ACR_YTD": number, "ACR_LCM": number, "BudgetAttainPct": number|null }],
+  "aioAccountAttributes": [{ "TPID": number, "ESI_Tier": "string|null", "HasOpenAI": "Y|N|null", "HasOpenAI_Pipe": "Y|N|null", "PTU_Target": "Y|N|null", "NetNewMigrationTarget": "Y|N|null", "LXP_Category": "string|null", "TrancheGrowthTarget": "Y|N|null", "500K_100K_Target": "string|null", "GHCP_200Plus": "Y|N|null", "GHCP_200Less": "Y|N|null" }]
 }
 ```
 
@@ -233,6 +293,11 @@ When the user says "html report", "dashboard", "rich report", or "exec report":
 | AIO service breakdown shows < 20% Data & AI for SQL600 account | Note: "SQL-adjacent spend is low relative to total Azure spend — modernization upside exists." |
 | SQL600 shows zero committed pipe but AIO shows active ACR | Note disconnect: "Account consuming Azure actively but not investing in SQL modernization pipeline." |
 | AIO model auth fails but SQL600 succeeds | Proceed with SQL600-only readout. Note "AIO cross-reference unavailable — run `az login` to refresh PBI auth for the AIO model." |
+| Account has `HasOpenAI = Y` but `HasOpenAI_Pipe = N` | Flag in detail: "Uses Azure OpenAI with no pipeline — AI expansion opportunity." Include in LLM context for next-step generation. |
+| Account has `PTU_Target = Y` | Flag in detail: "PTU target account." Surfaces sizing engagement in recommended next steps. |
+| Account has `NetNewMigrationTarget = Y` | Flag in detail: "Migration target." Strengthens migration-focused next-step recommendations. |
+| Account has `500K_100K_Target` set | Flag in detail: "High-value target." Prioritize in recommendations. |
+| Account has GHCP flags set | Flag in detail: "GHCP incentive eligible." Actionable for seller follow-up. |
 
 ## Output Schema
 

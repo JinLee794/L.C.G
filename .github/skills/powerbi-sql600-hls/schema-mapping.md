@@ -1,6 +1,6 @@
 # Schema Mapping — SQL 600 Performance Tracking
 
-Semantic model `c848b220-eaf2-42e0-b6d2-9633a6e39b37`. Schema fully resolved — **never call `GetSemanticModelSchema`**. If a column error occurs, update this file manually.
+Semantic model `c848b220-eaf2-42e0-b6d2-9633a6e39b37`. Schema fully resolved — **never call `GetSemanticModelSchema`**. The model's schema response is too large for the MCP tool to parse (fails with `MPC -32603` at `verifiedAnswers[0].Bindings.Values`). If a column error occurs, update this file manually.
 
 ---
 
@@ -26,8 +26,8 @@ All pre-built measures live here. No columns — measures only.
 | `ACR (LY)` | Integer | — | Last year comparison |
 | `ACR Change Δ% - YTD YoY` | Double | 0% | Year-over-year delta |
 | `ACR % of Column Total` | Double | — | Share of total |
-| `Annualized ACR Growth (since June 2025)` | Decimal | $#,0 | **Key growth metric** |
-| `Annualized ACR Growth + Pipeline` | Double | $#,0 | Growth + pipeline forward view |
+| ~~`Annualized ACR Growth (since June 2025)`~~ | ~~Decimal~~ | ~~$#,0~~ | **REMOVED from model Apr 2026.** Now computed from AIO aioAccountMoM: `(latestClosedACR − June2025ACR) × 12` |
+| ~~`Annualized ACR Growth + Pipeline`~~ | ~~Double~~ | ~~$#,0~~ | **REMOVED from model Apr 2026.** Computed as AnnualizedGrowth + PipeQualified |
 | `ACR (Excluding Current Month)` | Decimal | $#,0 | |
 | `Baseline ACR (Current Open Month Onwards)` | Double | $#,0 | |
 | `Realized ACR + Baseline + Pipe` | Double | $#,0 | **Composite forward view** |
@@ -63,7 +63,7 @@ All pre-built measures live here. No columns — measures only.
 
 | Measure | Type | Format | Notes |
 |---|---|---|---|
-| `SQL 600 Pipeline Penetration %` | Double | 0.0% | Accounts with pipeline / total |
+| ~~`SQL 600 Pipeline Penetration %`~~ | ~~Double~~ | ~~0.0%~~ | **REMOVED from model Apr 2026.** Computed as AcctsWithModPipe / AccountCount |
 | `Annualized SQL TAM` | Double | $#,0 | Total Addressable Market |
 | `Total SQL Cores` | Double | #,0 | On-prem SQL Server footprint |
 | `Accounts With Modernization Pipeline` | Integer | 0 | |
@@ -452,14 +452,15 @@ TPID list is gathered from SQL600 Q5 (Top Accounts) + Q8 (Gap Accounts) + Q6 (Re
 |---|---|---|
 | `IsAzureClosedAndCurrentOpen` | Text | `"Y"` = YTD closed months + current open. **Always filter to "Y".** |
 | `FY_Rel` | Text | `"FY"` = current fiscal year |
+| `MonthStartDate` | DateTime | **Cached month-grain column.** Use for all time-series AIO queries. Verified 2026-04. |
 
-> **⚠️ Month Column Discovery:** The fiscal month column name for time-series queries varies across MSXI model versions. On first AIO query batch, include a **DimDate schema probe** (see [query-rules.md](query-rules.md) § QA0) to discover the available month-grain column. Common names: `[FiscalYearMonth]`, `[MonthStartDate]`, `[CalendarYearMonth]`, `[FiscalMonth]`. Cache the discovered column name for subsequent queries.
+> **⚠️ Cached Month Column:** `MonthStartDate` is hardcoded in [query-rules.md](query-rules.md) AIO queries. If a DAX error reports "column not found", run `EVALUATE TOPN(1, 'DimDate')` once to rediscover and update both this file and query-rules.md.
 
 #### DimViewType (dimension)
 
 | Column | Type | Notes |
 |---|---|---|
-| `ViewType` | Text | `"Curated"` — **always filter to "Curated"** |
+| `ViewType` | Text | `"Curated"` — **always filter to "Curated"**. Use `TREATAS({"Curated"}, 'DimViewType'[ViewType])` in SUMMARIZECOLUMNS — bare equality is invalid as a filter argument. |
 
 #### M_ACR (measure group)
 
@@ -467,7 +468,12 @@ TPID list is gathered from SQL600 Q5 (Top Accounts) + Q8 (Gap Accounts) + Q6 (Re
 |---|---|
 | `$ ACR` | Total ACR — works at any grain in the query |
 | `$ ACR Last Closed Month` | Snapshot: last fully closed month ACR |
-| `% ACR Budget Attain (YTD)` | Budget attainment percentage YTD |
+
+#### M_ACRBudget (measure group — budget)
+
+| Measure | Notes |
+|---|---|
+| `% ACR Budget Attain (YTD)` | Budget attainment percentage YTD. **⚠️ Lives in `M_ACRBudget`, NOT `M_ACR`** (verified 2026-04-28). |
 
 #### F_AzureConsumptionPipe (fact — pipeline)
 

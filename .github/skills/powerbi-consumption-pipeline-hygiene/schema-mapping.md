@@ -1,6 +1,6 @@
 # Schema Mapping — CAIP ACR & Pipeline
 
-Semantic model `f71df8c0-e435-4354-b444-e4014e964b5f`. Schema fully resolved — skip `GetSemanticModelSchema` unless model ID changes or a query fails with an unknown column error.
+Semantic model `f71df8c0-e435-4354-b444-e4014e964b5f`. Schema fully resolved — **never call `GetSemanticModelSchema`**. Large PBI models fail with `MPC -32603` parsing errors. If a column error occurs, update this file manually.
 
 > **Key difference from MSBilledPipelineCurated:** This model uses prefixed table names (`'2) Account'`, `'✽ ACR'`), has direct Account→ACR/Pipeline relationships via TPID (no bridge table — CROSSFILTER not needed), and provides pre-built measures in `'◦ Measure'`. SUMMARIZECOLUMNS works correctly for all queries.
 

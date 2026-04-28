@@ -9,14 +9,14 @@
  *
  * Usage:
  *   node scripts/helpers/audit-sales-play.js \
- *     --pipeline /tmp/sql600-classified.json \
- *     --crm /tmp/crm-opps.json
+ *     --pipeline .copilot/docs/sql600-classified.json \
+ *     --crm .copilot/docs/crm-opps.json
  *
  *   # Or pipe classified data and pass CRM as arg:
- *   cat /tmp/sql600-classified.json | node scripts/helpers/audit-sales-play.js --crm /tmp/crm-opps.json
+ *   cat .copilot/docs/sql600-classified.json | node scripts/helpers/audit-sales-play.js --crm .copilot/docs/crm-opps.json
  *
  *   # Generate markdown vault note:
- *   node scripts/helpers/audit-sales-play.js --pipeline /tmp/classified.json --crm /tmp/crm.json --format md
+ *   node scripts/helpers/audit-sales-play.js --pipeline .copilot/docs/classified.json --crm .copilot/docs/crm.json --format md
  *
  * Options:
  *   --pipeline <path>   Classified pipeline JSON (from classify-sql-pipeline.js). Also accepts stdin.

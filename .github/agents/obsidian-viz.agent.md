@@ -31,6 +31,7 @@ tools:
   - agent
   - agent/runSubagent
 
+model: Claude Sonnet 4.6 (copilot)
 user-invocable: true
 agents: ["Chief of Staff"]
 ---

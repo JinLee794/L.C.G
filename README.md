@@ -59,6 +59,12 @@ curl -fsSL https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/instal
    Set-ExecutionPolicy -Scope Process Bypass -Force; irm "https://raw.githubusercontent.com/JinLee794/L.C.G/main/scripts/install.ps1?nocache=$(Get-Date -UFormat %s)" | iex
    ```
 
+### What You Should See (Windows, Single Session)
+
+For non-technical users, this walkthrough shows the exact on-screen terminal flow in one continuous session, including the required `yes` acknowledgment and why it matters.
+
+![L.C.G Windows setup single session](docs/assets/lcg-windows-setup-single-session.gif)
+
 ---
 
 ### What you'll be asked during the install
@@ -172,6 +178,13 @@ The installer and bootstrap are designed to finish unattended. For the curious, 
 > [!IMPORTANT]
 > When prompted for GitHub auth, use your **personal GitHub account** (e.g., `JohnDoe`), not your Enterprise Managed User account ending in `_microsoft`.
 
+The bootstrap:
+
+1. Installs **Node.js 18+** if missing.
+2. Runs `npm install`.
+3. Walks you through **GitHub Packages auth** and `.env` setup.
+4. Registers the global **`lcg`** command.
+
 > [!TIP]
 > Run `./scripts/bootstrap.sh --check` (macOS/Linux) or `./scripts/bootstrap.ps1 -Check` (Windows) for a dry prerequisite check at any time.
 
@@ -209,7 +222,43 @@ This adds the following under your vault, without touching any of your existing 
 
 > `.env` is git-ignored. Your paths and secrets stay local.
 
-</details>
+#### 3c. Run the onboarding wizard
+
+In VS Code → **Copilot Chat** → select **Chief of Staff** agent → type:
+
+```
+/onboarding
+```
+
+The wizard (~5 min) asks about your:
+
+1. **Role** — GM, CSAM, Specialist, or M1 Manager
+2. **Industry** — Segment you cover (scopes CRM + Power BI queries)
+3. **Team** — By territory, seller list, org hierarchy, or just you
+4. **Forecast targets** — Optional quota and coverage multiple
+5. **VIP list** — High-priority senders
+6. **Operating rhythm** — Default weekly cadences
+
+Answers are saved to `_lcg/role.md` and related config files. Re-run `/onboarding` anytime, or edit the files directly.
+
+> [!NOTE]
+> Skipping onboarding is fine — L.C.G. uses defaults. But personalization makes every workflow sharper.
+
+---
+
+### Step 4: Start Using L.C.G.
+
+Pick either path:
+
+**VS Code (recommended for most users):**
+
+In VS Code, open **Copilot Chat** (sidebar icon or `⌃⌘I` / `Ctrl+Alt+I`) → select the **Chief of Staff** agent → start typing.
+
+**Terminal:**
+
+Open any terminal and type `lcg` to start an interactive session.
+
+> Both interfaces are fully equivalent — same agents, skills, and MCP servers. See [Two Ways to Use L.C.G.](#two-ways-to-use-lcg) for details.
 
 ---
 
@@ -407,6 +456,12 @@ All live-data connections are declared in `.vscode/mcp.json`.
 ---
 
 ## Troubleshooting
+
+### Visual Troubleshooting Walkthrough
+
+If setup fails, this GIF maps common errors to plain-English causes and one-line fixes.
+
+![L.C.G troubleshooting walkthrough](docs/assets/lcg-troubleshooting.gif)
 
 ### `npm ERR! 404 Not Found` or `401 Unauthorized` from `npm.pkg.github.com`
 

@@ -7,9 +7,9 @@
  * Output: Standalone HTML file to .copilot/docs/
  *
  * Usage:
- *   node scripts/helpers/generate-sql600-report.js /tmp/sql600-data.json
- *   cat /tmp/sql600-data.json | node scripts/helpers/generate-sql600-report.js
- *   node scripts/helpers/generate-sql600-report.js --output path/to/output.html /tmp/sql600-data.json
+ *   node scripts/helpers/generate-sql600-report.js .copilot/docs/sql600-data.json
+ *   cat .copilot/docs/sql600-data.json | node scripts/helpers/generate-sql600-report.js
+ *   node scripts/helpers/generate-sql600-report.js --output path/to/output.html .copilot/docs/sql600-data.json
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, statSync } from 'fs';
@@ -104,8 +104,35 @@ const gapAccounts = data.gapAccounts || [];
 const aioAccountMoM = data.aioAccountMoM || [];
 const aioServiceBreakdown = data.aioServiceBreakdown || [];
 const aioBudgetAttainment = data.aioBudgetAttainment || [];
-const hasAioData = aioAccountMoM.length > 0 || aioServiceBreakdown.length > 0 || aioBudgetAttainment.length > 0;
+const aioAccountAttributes = data.aioAccountAttributes || [];
+// Q10-DETAIL from SQL600 model — preferred over aioServiceBreakdown for per-account pillar mix.
+// Each row: { TPID, Account (or TopParent), StrategicPillar, ACR }
+const sql600PillarBreakdown = data.sql600PillarBreakdown || [];
+const verticalTrend = data.verticalTrend || [];
+const hasAioData = aioAccountMoM.length > 0 || aioServiceBreakdown.length > 0 || aioBudgetAttainment.length > 0 || sql600PillarBreakdown.length > 0;
 const generated = data.generated || new Date().toISOString().slice(0, 10);
+
+// ── Attribute propensity badges ──────────────────────────────────────────────
+const attrByTpid = new Map(
+  aioAccountAttributes.map((a) => [a.TPID, a])
+);
+
+function attrBadges(tpid) {
+  const attr = attrByTpid.get(tpid);
+  if (!attr) return '';
+  const badges = [];
+  if (attr.HasOpenAI === 'Y') badges.push('<span class="why-chip attr-openai">OpenAI</span>');
+  if (attr.HasOpenAI_Pipe === 'Y') badges.push('<span class="why-chip attr-openai-pipe">OpenAI Pipe</span>');
+  if (attr.PTU_Target === 'Y') badges.push('<span class="why-chip attr-ptu">PTU Target</span>');
+  if (attr.NetNewMigrationTarget === 'Y') badges.push('<span class="why-chip attr-migration">Migration Target</span>');
+  if (attr.TrancheGrowthTarget === 'Y') badges.push('<span class="why-chip attr-growth">Growth Target</span>');
+  if (attr.GHCP_200Plus === 'Y') badges.push('<span class="why-chip attr-ghcp">GHCP 200+</span>');
+  if (attr.GHCP_200Less === 'Y') badges.push('<span class="why-chip attr-ghcp">GHCP &lt;200</span>');
+  if (attr['500K_100K_Target']) badges.push(`<span class="why-chip attr-target">${attr['500K_100K_Target']}</span>`);
+  if (attr.ESI_Tier) badges.push(`<span class="why-chip attr-esi">ESI ${attr.ESI_Tier}</span>`);
+  if (attr.LXP_Category) badges.push(`<span class="why-chip attr-lxp">LXP ${attr.LXP_Category}</span>`);
+  return badges.length ? badges.join(' ') : '';
+}
 
 // ── MSX deep links ───────────────────────────────────────────────────────────
 const MSX_BASE = 'https://microsoftsales.crm.dynamics.com/main.aspx';
@@ -301,11 +328,97 @@ const narrative = parseNarrative(narrativePath);
 
 // Compute derived values
 const trendValues = trend.map(t => parseDollar(t.ACR));
+const trendClosed = trend.filter(t => t.IsClosed !== false && t.IsClosed !== 'false');
+const trendClosedValues = trendClosed.map(t => parseDollar(t.ACR));
 const trendMax = Math.max(...trendValues, 1);
-const momDir = trendValues.length >= 2
-  ? arrow(trendValues[trendValues.length - 1], trendValues[trendValues.length - 2])
+// MoM badge uses last two CLOSED months (partial MTD would skew the %)
+const momValues = trendClosedValues.length >= 2 ? trendClosedValues : trendValues;
+const momDir = momValues.length >= 2
+  ? arrow(momValues[momValues.length - 1], momValues[momValues.length - 2])
   : '→';
+const momPct = momValues.length >= 2 && momValues[momValues.length - 2] > 0
+  ? ((momValues[momValues.length - 1] - momValues[momValues.length - 2]) / momValues[momValues.length - 2] * 100)
+  : 0;
 const wowDir = parseDollar(snapshot.WoW_Change) > 0 ? '↑' : parseDollar(snapshot.WoW_Change) < 0 ? '↓' : '→';
+
+// ── Fallback derivations for PBI measures that occasionally return BLANK ─────
+// AnnualizedGrowthPlusPipe: deferred until after vertical growth is summed (below)
+// PipelinePenetration: AcctsWithModPipe / AccountCount (schema: "Accounts with pipeline / total")
+if (snapshot.PipelinePenetration == null && snapshot.AcctsWithModPipe && snapshot.AccountCount) {
+  snapshot.PipelinePenetration = snapshot.AcctsWithModPipe / snapshot.AccountCount;
+}
+
+// NOTE: Per-vertical and per-account AnnualizedGrowth must come from PBI's
+// [Annualized ACR Growth (since June 2025)] measure. That measure was removed
+// from the SQL600 model as of Apr 2026. When PBI returns null, we fall back to
+// AIO aioAccountMoM data: (latestClosedACR − June2025ACR) × 12 per account,
+// then aggregate up to verticals and snapshot. AIO covers total Azure
+// consumption (not just SQL600-scoped ACR), matching the intent of the removed
+// PBI measure.
+
+// ── Per-account AnnualizedGrowth from AIO MoM ───────────────────────────────
+if (aioAccountMoM.length > 0) {
+  const aioByTpid = new Map();
+  for (const row of aioAccountMoM) {
+    const key = row.TPID;
+    if (!aioByTpid.has(key)) aioByTpid.set(key, []);
+    aioByTpid.get(key).push(row);
+  }
+
+  // Build a TPID-keyed growth map from AIO
+  const aioGrowthByTpid = new Map();
+  for (const [tpid, rows] of aioByTpid) {
+    rows.sort((a, b) => String(a.FiscalMonth).localeCompare(String(b.FiscalMonth)));
+    // June 2025 baseline (the month the PBI measure anchored to)
+    const jun25 = rows.find(r => String(r.FiscalMonth).startsWith('2025-06'));
+    // Latest closed month (exclude current open month Apr 2026+)
+    const closed = rows.filter(r => r.FiscalMonth < '2026-04');
+    const latest = closed[closed.length - 1];
+    if (jun25 && latest && jun25 !== latest) {
+      const growth = (parseDollar(latest.ACR) - parseDollar(jun25.ACR)) * 12;
+      aioGrowthByTpid.set(tpid, growth);
+    }
+  }
+
+  // Apply to topAccounts, renewals, gapAccounts
+  for (const list of [topAccounts, renewals, gapAccounts]) {
+    for (const a of list) {
+      if (a.AnnualizedGrowth != null) continue;
+      const g = aioGrowthByTpid.get(a.TPID);
+      if (g != null) a.AnnualizedGrowth = g;
+    }
+  }
+
+  // Aggregate by vertical for per-vertical growth
+  const tpidVertical = new Map();
+  for (const list of [topAccounts, renewals, gapAccounts]) {
+    for (const row of list) {
+      if (row.TPID && row.Vertical) tpidVertical.set(row.TPID, row.Vertical);
+    }
+  }
+  const vertGrowth = new Map();
+  for (const [tpid, growth] of aioGrowthByTpid) {
+    const vert = tpidVertical.get(tpid);
+    if (vert) vertGrowth.set(vert, (vertGrowth.get(vert) || 0) + growth);
+  }
+  for (const v of verticals) {
+    if (v.AnnualizedGrowth != null) continue;
+    const g = vertGrowth.get(v.Vertical);
+    if (g != null) v.AnnualizedGrowth = g;
+  }
+}
+
+// ── Snapshot AnnualizedGrowth from vertical sums ────────────────────────────
+// Sum per-vertical AnnualizedGrowth values. When AIO covers a subset of
+// accounts, this is a lower bound on true annualized growth.
+if (snapshot.AnnualizedGrowth == null) {
+  const vertGrowthSum = verticals.reduce((s, v) => s + (parseDollar(v.AnnualizedGrowth) || 0), 0);
+  if (vertGrowthSum !== 0) snapshot.AnnualizedGrowth = vertGrowthSum;
+}
+// AnnualizedGrowthPlusPipe: AnnualizedGrowth + total pipeline
+if (snapshot.AnnualizedGrowthPlusPipe == null && snapshot.AnnualizedGrowth != null) {
+  snapshot.AnnualizedGrowthPlusPipe = snapshot.AnnualizedGrowth + parseDollar(snapshot.PipeQualified);
+}
 
 // Industry ranking position
 const hlsRank = ranking.findIndex(r => r.Industry === 'Healthcare') + 1;
@@ -327,17 +440,44 @@ const arcEnabled = renewals.filter(r => r.ArcEnabled === 'Yes').length;
 function buildTrendChart(trend, committedPipe, uncommittedPipe) {
   const W = 680, H = 280, M = { top: 30, right: 140, bottom: 36, left: 52 };
   const iw = W - M.left - M.right, ih = H - M.top - M.bottom;
-  const pts = trend.map(t => ({ month: t.FiscalMonth, q: t.FiscalQuarter, v: parseDollar(t.ACR) }));
+  const pts = trend.map(t => {
+    const fm = String(t.FiscalMonth || '');
+    // Derive fiscal quarter from month when FiscalQuarter is absent
+    let q = t.FiscalQuarter;
+    if (!q && fm) {
+      const d = new Date(fm.slice(0, 10) + 'T12:00:00Z');
+      const mon = d.getUTCMonth(); // 0-based
+      const calYear = d.getUTCFullYear();
+      // MSFT fiscal year: Jul(0→Q1)…Jun(11→Q4)
+      const fqMap = [/*Jan*/3,3,3,/*Apr*/4,4,4,/*Jul*/1,1,1,/*Oct*/2,2,2];
+      const fq = fqMap[mon];
+      const fy = mon >= 6 ? calYear + 1 : calYear; // Jul+ → next FY
+      q = `FY${String(fy).slice(-2)} Q${fq}`;
+    }
+    return {
+      month: fm, q, v: parseDollar(t.ACR),
+      closed: t.IsClosed !== false && t.IsClosed !== 'false'
+    };
+  });
   if (!pts.length) return '';
   const maxV = Math.max(...pts.map(p => p.v)) * 1.15;
   const minV = 0;
   const x = i => M.left + (i / Math.max(pts.length - 1, 1)) * iw;
   const y = v => M.top + ih - ((v - minV) / (maxV - minV)) * ih;
 
-  // Area path
-  const areaPath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(p.v)}`).join(' ')
-    + ` L${x(pts.length - 1)},${M.top + ih} L${x(0)},${M.top + ih} Z`;
-  const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(p.v)}`).join(' ');
+  // Find the boundary between closed and partial months
+  const lastClosedIdx = pts.reduce((acc, p, i) => p.closed ? i : acc, -1);
+  const hasPartial = lastClosedIdx < pts.length - 1;
+
+  // Area path (only up to last closed month)
+  const closedPts = hasPartial ? pts.slice(0, lastClosedIdx + 1) : pts;
+  const areaPath = closedPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(p.v)}`).join(' ')
+    + ` L${x(closedPts.length - 1)},${M.top + ih} L${x(0)},${M.top + ih} Z`;
+  const linePath = closedPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(p.v)}`).join(' ');
+  // Dashed segment from last closed to partial month(s)
+  const partialLinePath = hasPartial
+    ? pts.slice(lastClosedIdx).map((p, i) => `${i === 0 ? 'M' : 'L'}${x(lastClosedIdx + i)},${y(p.v)}`).join(' ')
+    : '';
 
   // Y-axis ticks
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => minV + (maxV - minV) * r);
@@ -382,6 +522,7 @@ function buildTrendChart(trend, committedPipe, uncommittedPipe) {
 
   <path d="${areaPath}" fill="url(#acrArea)"/>
   <path d="${linePath}" fill="none" stroke="#a29bfe" stroke-width="2.5" class="chart-line"/>
+  ${partialLinePath ? `<path d="${partialLinePath}" fill="none" stroke="#a29bfe" stroke-width="2.5" stroke-dasharray="6,4" opacity="0.6" class="chart-line chart-line-partial"/>` : ''}
 
   ${pts.map((p, i) => {
     const prev = i > 0 ? pts[i - 1].v : p.v;
@@ -391,14 +532,22 @@ function buildTrendChart(trend, committedPipe, uncommittedPipe) {
     const dColor = delta >= 0 ? '#00b894' : '#ff6b6b';
     const month = new Date(p.month + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
     const isLast = i === pts.length - 1;
-    return `<circle cx="${x(i)}" cy="${y(p.v)}" r="${isLast ? 6 : 4}" fill="${isLast ? '#6c5ce7' : '#a29bfe'}" stroke="#fff" stroke-width="2" class="chart-dot${isLast ? ' last' : ''}"/>
-${isLast ? `<circle cx="${x(i)}" cy="${y(p.v)}" r="10" fill="none" stroke="#6c5ce7" stroke-width="1.5" opacity="0.5"><animate attributeName="r" from="6" to="14" dur="1.6s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.7" to="0" dur="1.6s" repeatCount="indefinite"/></circle>` : ''}
-<text x="${x(i)}" y="${H - 18}" fill="#8b8fa3" font-size="10" text-anchor="middle" class="chart-axis">${month}</text>
-${dLabel ? `<text x="${x(i)}" y="${y(p.v) - 12}" fill="${dColor}" font-size="9" font-weight="700" text-anchor="middle" class="chart-delta">${dLabel}</text>` : ''}`;
+    const isPartial = !p.closed;
+    const dotFill = isPartial ? '#1e1e2e' : (isLast ? '#6c5ce7' : '#a29bfe');
+    const dotStroke = isPartial ? '#a29bfe' : '#fff';
+    const dotR = isLast ? 6 : 4;
+    return `<circle cx="${x(i)}" cy="${y(p.v)}" r="${dotR}" fill="${dotFill}" stroke="${dotStroke}" stroke-width="2" stroke-dasharray="${isPartial ? '3,2' : 'none'}" class="chart-dot${isLast ? ' last' : ''}"/>
+${isLast && !isPartial ? `<circle cx="${x(i)}" cy="${y(p.v)}" r="10" fill="none" stroke="#6c5ce7" stroke-width="1.5" opacity="0.5"><animate attributeName="r" from="6" to="14" dur="1.6s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.7" to="0" dur="1.6s" repeatCount="indefinite"/></circle>` : ''}
+${isPartial ? `<circle cx="${x(i)}" cy="${y(p.v)}" r="10" fill="none" stroke="#fdcb6e" stroke-width="1.5" opacity="0.5"><animate attributeName="r" from="6" to="14" dur="1.6s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.7" to="0" dur="1.6s" repeatCount="indefinite"/></circle>` : ''}
+<text x="${x(i)}" y="${H - 18}" fill="${isPartial ? '#fdcb6e' : '#8b8fa3'}" font-size="10" text-anchor="middle" class="chart-axis">${month}</text>
+${dLabel ? `<text x="${x(i)}" y="${y(p.v) - 12}" fill="${isPartial ? '#fdcb6e' : dColor}" font-size="9" font-weight="700" text-anchor="middle" class="chart-delta">${dLabel}${isPartial ? '*' : ''}</text>` : ''}`;
   }).join('\n  ')}
 
-  <!-- You are here -->
-  <text x="${x(pts.length - 1)}" y="${H - 4}" fill="#6c5ce7" font-size="9" font-weight="700" text-anchor="middle" class="chart-marker">▲ NOW</text>
+  <!-- You are here / MTD marker -->
+  ${hasPartial
+    ? `<text x="${x(pts.length - 1)}" y="${H - 4}" fill="#fdcb6e" font-size="9" font-weight="700" text-anchor="middle" class="chart-marker">▲ MTD</text>`
+    : `<text x="${x(pts.length - 1)}" y="${H - 4}" fill="#6c5ce7" font-size="9" font-weight="700" text-anchor="middle" class="chart-marker">▲ NOW</text>`
+  }
 
   <!-- Forward pipeline horizon (right side callout) -->
   <line x1="${W - M.right + 8}" y1="${M.top}" x2="${W - M.right + 8}" y2="${M.top + ih}" stroke="#74b9ff" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
@@ -579,7 +728,16 @@ function buildAioHeatmapData(aioMoM) {
     monthSet.add(monthLabel);
     byAcct.get(key).months.set(monthLabel, parseDollar(row.ACR));
   }
-  const months = [...monthSet].sort();
+  const MONTH_IDX = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+  const allMonths = [...monthSet].sort((a, b) => {
+    const [mA, yA] = a.split(' ');
+    const [mB, yB] = b.split(' ');
+    const yearDiff = parseInt(yA, 10) - parseInt(yB, 10);
+    if (yearDiff !== 0) return yearDiff;
+    return (MONTH_IDX[mA] ?? 99) - (MONTH_IDX[mB] ?? 99);
+  });
+  // Show only the last 4 fiscal quarters (~12 months)
+  const months = allMonths.slice(-12);
   const accounts = [...byAcct.values()].map(a => {
     const vals = months.map(m => a.months.get(m) || 0);
     const last2 = vals.filter(v => v > 0).slice(-2);
@@ -594,6 +752,33 @@ function buildAioHeatmapData(aioMoM) {
   return { accounts, months };
 }
 
+/** Map a month label like "Aug 25" to its MSFT fiscal quarter class (FY Jul-Jun). */
+function fiscalQuarterClass(monthLabel) {
+  const mon = monthLabel.split(' ')[0];
+  const Q1 = ['Jul', 'Aug', 'Sep'];
+  const Q2 = ['Oct', 'Nov', 'Dec'];
+  const Q3 = ['Jan', 'Feb', 'Mar'];
+  // Q4 = Apr, May, Jun (default)
+  if (Q1.includes(mon)) return 'fq1';
+  if (Q2.includes(mon)) return 'fq2';
+  if (Q3.includes(mon)) return 'fq3';
+  return 'fq4';
+}
+
+function fiscalQuarterLabel(monthLabel) {
+  const mon = monthLabel.split(' ')[0];
+  const yr = monthLabel.split(' ')[1];
+  const Q1 = ['Jul', 'Aug', 'Sep'];
+  const Q2 = ['Oct', 'Nov', 'Dec'];
+  const Q3 = ['Jan', 'Feb', 'Mar'];
+  let q, fy;
+  if (Q1.includes(mon)) { q = 'Q1'; fy = parseInt(yr, 10) + 1; }
+  else if (Q2.includes(mon)) { q = 'Q2'; fy = parseInt(yr, 10) + 1; }
+  else if (Q3.includes(mon)) { q = 'Q3'; fy = parseInt(yr, 10); }
+  else { q = 'Q4'; fy = parseInt(yr, 10); }
+  return `FY${fy} ${q}`;
+}
+
 function formatAioMonth(raw) {
   if (!raw) return '—';
   const s = String(raw);
@@ -604,31 +789,112 @@ function formatAioMonth(raw) {
   return s.length > 8 ? s.slice(0, 8) : s;
 }
 
-function heatmapCellClass(v, max) {
-  if (!v || v === 0) return 'hm-zero';
-  const ratio = v / (max || 1);
-  if (ratio >= 0.6) return 'hm-high';
-  if (ratio >= 0.25) return 'hm-mid';
-  return 'hm-low';
+function heatmapCellClass(curr, prev) {
+  if (!curr || curr === 0) return 'hm-zero';
+  if (prev == null || prev === 0) return 'hm-flat';
+  const delta = curr - prev;
+  const pct = Math.abs(delta / prev);
+  if (pct < 0.005) return 'hm-flat';
+  return delta > 0 ? 'hm-up' : 'hm-down';
 }
 
-function buildAioPillarData(aioBreakdown) {
+/**
+ * Normalize Q10-DETAIL rows (from SQL600 model) into the same shape that
+ * buildAioPillarData() expects (aioServiceBreakdown format).
+ * Q10-DETAIL rows: { TPID, TopParent (or Account), StrategicPillar, ACR }
+ * Target shape: { TPID, Account, StrategicPillar, ACR, PipelineACR, SQLRelevant }
+ */
+function normalizeSql600PillarBreakdown(rows) {
+  return rows.map(r => ({
+    TPID: r.TPID,
+    Account: r.Account || r.TopParent,
+    StrategicPillar: r.StrategicPillar,
+    SolutionPlay: null,
+    ACR: r.ACR,
+    PipelineACR: null,
+    SQLRelevant: ['data & ai', 'infra'].includes((r.StrategicPillar || '').toLowerCase()),
+  }));
+}
+
+function buildAioPillarData(aioBreakdown, momLookup) {
   if (!aioBreakdown.length) return null;
   const SQL_RELEVANT_PILLARS = new Set(['data & ai', 'infra']);
+
+  // Map granular AIO sub-pillar names to 6 parent strategic pillars.
+  // Ensures consistent coloring and clean bar chart regardless of AIO model granularity.
+  const SUB_PILLAR_MAP = {
+    // Data & AI family
+    'azure sql core': 'Data & AI', 'modern dbs': 'Data & AI', 'databricks': 'Data & AI',
+    'azure openai': 'Data & AI', 'rest of azure ai': 'Data & AI', 'azure ai': 'Data & AI',
+    'analytics': 'Data & AI', 'power bi': 'Data & AI', 'fabric': 'Data & AI',
+    'cosmosdb': 'Data & AI', 'cosmos db': 'Data & AI', 'data integration': 'Data & AI',
+    'cognitive services': 'Data & AI', 'ai apps': 'Data & AI', 'data & ai': 'Data & AI',
+    // Infra family
+    'rest of infra': 'Infra', 'windows compute': 'Infra', 'linux compute': 'Infra',
+    'win compute': 'Infra', 'networking': 'Infra', 'storage': 'Infra',
+    'azure vmware solution': 'Infra', 'hpc + ai infra': 'Infra', '3p gpu': 'Infra',
+    'sap': 'Infra', 'azure arc': 'Infra', 'arc': 'Infra', 'infra': 'Infra',
+    // Digital & App Innovation family
+    'app platform services': 'Digital & App Innovation', 'container services': 'Digital & App Innovation',
+    'serverless and supporting app services': 'Digital & App Innovation',
+    'integration services': 'Digital & App Innovation', 'devops': 'Digital & App Innovation',
+    'digital & app innovation': 'Digital & App Innovation', 'github copilot': 'Digital & App Innovation',
+    // Security family
+    'security': 'Security', 'sentinel': 'Security', 'defender': 'Security',
+    // Modern Work family
+    'avd': 'Modern Work', 'modern work': 'Modern Work', 'w365': 'Modern Work',
+    'cloud endpoint': 'Modern Work',
+    // Business Applications family
+    'business applications': 'Business Applications', 'dynamics 365': 'Business Applications',
+    'power platform': 'Business Applications',
+  };
+
+  function normalizePillar(raw) {
+    if (!raw) return 'Other';
+    const mapped = SUB_PILLAR_MAP[raw.toLowerCase()];
+    if (mapped) return mapped;
+    // Fuzzy fallback
+    const lower = raw.toLowerCase();
+    if (lower.includes('sql') || lower.includes('databricks') || lower.includes(' ai') || lower.includes('openai')) return 'Data & AI';
+    if (lower.includes('compute') || lower.includes('infra') || lower.includes('gpu') || lower.includes('arc') || lower.includes('vmware')) return 'Infra';
+    if (lower.includes('app') || lower.includes('container') || lower.includes('serverless') || lower.includes('devops') || lower.includes('github')) return 'Digital & App Innovation';
+    if (lower.includes('secur') || lower.includes('sentinel') || lower.includes('defend')) return 'Security';
+    if (lower.includes('avd') || lower.includes('w365') || lower.includes('endpoint')) return 'Modern Work';
+    return 'Other';
+  }
+
   const byAcct = new Map();
   for (const row of aioBreakdown) {
     const key = row.TPID || row.Account;
     if (!byAcct.has(key)) byAcct.set(key, { name: row.Account, tpid: row.TPID, pillars: {} });
-    const pillar = row.StrategicPillar || 'Other';
+    const pillar = normalizePillar(row.StrategicPillar);
     const val = parseDollar(row.ACR) || parseDollar(row.PipelineACR) || 0;
     byAcct.get(key).pillars[pillar] = (byAcct.get(key).pillars[pillar] || 0) + val;
   }
+
+  // Detect pipeline-based data: if pillar totals are <10% of MoM consumption
+  // for most accounts, the service breakdown is using pipeline (forward) data
+  // rather than actual consumption ACR.
+  let pipelineBasedCount = 0;
+  let matchedCount = 0;
+  if (momLookup && momLookup.size > 0) {
+    for (const [, acct] of byAcct) {
+      const pillarTotal = Object.values(acct.pillars).reduce((s, v) => s + v, 0);
+      const momAcr = momLookup.get(acct.tpid) || momLookup.get((acct.name || '').trim().toLowerCase());
+      if (momAcr && momAcr > 0) {
+        matchedCount++;
+        if (pillarTotal < momAcr * 0.1) pipelineBasedCount++;
+      }
+    }
+  }
+  const isPipelineBased = matchedCount > 0 && pipelineBasedCount / matchedCount > 0.5;
+
   const PILLAR_COLORS = {
     'Data & AI': '#6c5ce7', 'Infra': '#00b894',
     'Digital & App Innovation': '#74b9ff', 'Security': '#ffc048',
     'Modern Work': '#fd79a8', 'Business Applications': '#a29bfe'
   };
-  return [...byAcct.values()].map(a => {
+  const accounts = [...byAcct.values()].map(a => {
     const total = Object.values(a.pillars).reduce((s, v) => s + v, 0);
     const sqlAdj = Object.entries(a.pillars)
       .filter(([p]) => SQL_RELEVANT_PILLARS.has(p.toLowerCase()))
@@ -643,25 +909,69 @@ function buildAioPillarData(aioBreakdown) {
       }));
     return { ...a, total, sqlPct, segments };
   }).sort((a, b) => b.total - a.total);
+  accounts.isPipelineBased = isPipelineBased;
+  return accounts;
 }
 
-function budgetSignal(pct) {
+function budgetSignal(pct, acrYtd) {
   if (pct == null || isNaN(pct)) return { cls: 'budget-nodata', label: '⚫ No data' };
   const v = typeof pct === 'string' ? parseFloat(pct) : pct;
   const p = v > 2 ? v : v * 100;
+  // Treat 0% (or < 1%) on accounts with substantial ACR as "no data" —
+  // budget targets aren't loaded, not actual underperformance.
+  if (p < 1 && acrYtd != null && parseDollar(acrYtd) > 1_000_000) {
+    return { cls: 'budget-nodata', label: '⚫ No data' };
+  }
   if (p >= 100) return { cls: 'budget-ahead', label: '🟢 Ahead' };
   if (p >= 80) return { cls: 'budget-ontrack', label: '🟡 On track' };
   return { cls: 'budget-below', label: '🔴 Below target' };
 }
 
 const heatmapData = buildAioHeatmapData(aioAccountMoM);
-const pillarData = buildAioPillarData(aioServiceBreakdown);
 
-// Compute SQL-adjacent ratio per account for the expandable chart overlay
+// Build a MoM lookup (TPID → latest ACR, name → latest ACR) so pillar data
+// can detect pipeline-vs-consumption mismatch.
+const momLatestLookup = new Map();
+if (heatmapData) {
+  for (const a of heatmapData.accounts) {
+    const latest = a.monthValues[a.monthValues.length - 1] || 0;
+    if (a.tpid) momLatestLookup.set(a.tpid, latest);
+    if (a.name) momLatestLookup.set(a.name.trim().toLowerCase(), latest);
+  }
+}
+
+// Determine best pillar data source. sql600PillarBreakdown only contains SQL-relevant
+// sub-pillars (Data & AI family). If every row maps to a single parent category, the
+// data is insufficient for a full service-mix chart — fall through to aioServiceBreakdown.
+let pillarSource = aioServiceBreakdown;
+if (sql600PillarBreakdown.length > 0) {
+  const normalized = normalizeSql600PillarBreakdown(sql600PillarBreakdown);
+  const uniqueParents = new Set(normalized.map(r => {
+    const lower = (r.StrategicPillar || '').toLowerCase();
+    // Quick parent mapping matching buildAioPillarData's SUB_PILLAR_MAP
+    if (['azure sql core','modern dbs','mysql and postgresql paas','databricks','analytics',
+         'azure openai','rest of azure ai','azure ai','cosmosdb','cosmos db','data & ai',
+         'power bi','fabric','data integration','cognitive services','ai apps'].includes(lower)) return 'Data & AI';
+    if (['rest of infra','windows compute','linux compute','networking','storage','infra',
+         'azure vmware solution','hpc + ai infra','3p gpu','sap','azure arc','arc'].includes(lower)) return 'Infra';
+    return lower;
+  }));
+  if (uniqueParents.size >= 2) {
+    pillarSource = normalized;
+  }
+}
+const pillarData = buildAioPillarData(pillarSource, momLatestLookup);
+const pillarIsPipelineBased = pillarData?.isPipelineBased ?? false;
+
+// Compute SQL-adjacent ratio per account for the expandable chart overlay.
+// Build both TPID-based and name-based indices for resilient matching.
 const sqlAdjRatioByTpid = new Map();
-if (pillarData) {
+const sqlAdjRatioByName = new Map();
+if (pillarData && !pillarIsPipelineBased) {
   for (const a of pillarData) {
-    sqlAdjRatioByTpid.set(a.tpid, a.total > 0 ? parseFloat(a.sqlPct) / 100 : 0);
+    const ratio = a.total > 0 ? parseFloat(a.sqlPct) / 100 : 0;
+    if (a.tpid) sqlAdjRatioByTpid.set(a.tpid, ratio);
+    if (a.name) sqlAdjRatioByName.set(a.name.trim().toLowerCase(), ratio);
   }
 }
 
@@ -669,12 +979,18 @@ if (pillarData) {
 const acctChartData = {};
 if (heatmapData) {
   for (const a of heatmapData.accounts) {
-    const ratio = sqlAdjRatioByTpid.get(a.tpid) || 0;
+    // Try TPID match first, then name-based fallback
+    let ratio = sqlAdjRatioByTpid.get(a.tpid);
+    if (ratio == null && a.name) {
+      ratio = sqlAdjRatioByName.get(a.name.trim().toLowerCase());
+    }
+    const hasRatio = ratio != null && ratio > 0;
     acctChartData[a.tpid] = {
       name: a.name,
       months: heatmapData.months,
       total: a.monthValues,
-      sqlAdj: a.monthValues.map(v => Math.round(v * ratio)),
+      sqlAdj: hasRatio ? a.monthValues.map(v => Math.round(v * ratio)) : a.monthValues.map(() => 0),
+      noSqlData: !hasRatio,
     };
   }
 }
@@ -896,6 +1212,17 @@ const html = `<!DOCTYPE html>
   .why-warn    { background: var(--yellow-bg); color: var(--yellow); }
   .why-bad     { background: var(--red-bg); color: var(--red); font-weight: 600; }
 
+  /* Attribute propensity badges */
+  .attr-openai      { background: rgba(16,163,127,0.15); color: #10a37f; }
+  .attr-openai-pipe { background: rgba(16,163,127,0.10); color: #10a37f; }
+  .attr-ptu         { background: rgba(108,92,231,0.15); color: var(--accent-light); }
+  .attr-migration   { background: rgba(0,184,148,0.15); color: var(--green); }
+  .attr-growth      { background: rgba(0,184,148,0.12); color: var(--green); }
+  .attr-ghcp        { background: rgba(116,185,255,0.15); color: var(--blue); }
+  .attr-target      { background: var(--yellow-bg); color: var(--yellow); }
+  .attr-esi         { background: rgba(162,155,254,0.12); color: var(--accent-light); }
+  .attr-lxp         { background: rgba(139,143,163,0.12); color: var(--text-muted); }
+
   /* Expandable detail rows for compact tables */
   .expand-toggle {
     cursor: pointer; user-select: none;
@@ -934,6 +1261,8 @@ const html = `<!DOCTYPE html>
     font-size: 12.5px; color: var(--text); line-height: 1.5;
   }
   .detail-value .why-chip { font-size: 10px; }
+  .detail-block-propensity { flex: 2; min-width: 180px; max-width: 320px; }
+  .detail-block-propensity .detail-value { display: flex; flex-wrap: wrap; gap: 3px 4px; }
   .detail-next-step {
     font-size: 13px; color: var(--accent-light); font-weight: 500;
     line-height: 1.5;
@@ -1193,11 +1522,21 @@ const html = `<!DOCTYPE html>
 
   /* AIO Deep Dive */
   .heatmap-table td.hm-cell { text-align: center; font-size: 11px; font-weight: 600; padding: 6px 8px; min-width: 72px; }
-  .hm-high { background: rgba(0,184,148,0.25); color: var(--green); }
-  .hm-mid  { background: rgba(116,185,255,0.15); color: var(--blue); }
-  .hm-low  { background: rgba(139,143,163,0.10); color: var(--text-muted); }
+  .hm-up   { background: rgba(0,184,148,0.22); color: var(--green); }
+  .hm-down { background: rgba(214,48,49,0.18); color: var(--red); }
+  .hm-flat { background: rgba(139,143,163,0.10); color: var(--text-muted); }
   .hm-zero { background: transparent; color: var(--text-muted); }
   .hm-dir  { font-size: 13px; font-weight: 700; }
+  /* Fiscal quarter column indicators (MSFT FY: Q1=Jul-Sep, Q2=Oct-Dec, Q3=Jan-Mar, Q4=Apr-Jun) */
+  .heatmap-table th.fq1 { border-bottom: 3px solid #6c5ce7; }
+  .heatmap-table th.fq2 { border-bottom: 3px solid #00b894; }
+  .heatmap-table th.fq3 { border-bottom: 3px solid #0984e3; }
+  .heatmap-table th.fq4 { border-bottom: 3px solid #fdcb6e; }
+  .heatmap-table td.fq1 { border-left: 2px solid rgba(108,92,231,0.18); }
+  .heatmap-table td.fq2 { border-left: 2px solid rgba(0,184,148,0.18); }
+  .heatmap-table td.fq3 { border-left: 2px solid rgba(9,132,227,0.18); }
+  .heatmap-table td.fq4 { border-left: 2px solid rgba(253,203,110,0.18); }
+  .fq-label { display: block; font-size: 9px; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
   .pillar-bar-wrap { display: flex; height: 22px; border-radius: 4px; overflow: hidden; position: relative; }
   .pillar-seg { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; color: #fff; min-width: 1px; cursor: default; transition: opacity 0.15s; }
   .pillar-seg.sql-relevant { outline: 2px solid var(--accent-light); outline-offset: -2px; }
@@ -1270,6 +1609,38 @@ const html = `<!DOCTYPE html>
   .chart-point-tip .cpt-delta { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border); font-size: 11px; }
   .chart-point-tip .cpt-up { color: var(--green); }
   .chart-point-tip .cpt-down { color: var(--red); }
+
+  /* Sortable heatmap headers */
+  .heatmap-table th.sortable { cursor: pointer; user-select: none; position: relative; white-space: nowrap; }
+  .heatmap-table th.sortable:hover { background: rgba(108,92,231,0.12); }
+  .heatmap-table th.sortable::after { content: '⇅'; font-size: 9px; color: var(--text-muted); margin-left: 4px; opacity: 0.5; }
+  .heatmap-table th.sortable.sort-asc::after { content: '↑'; color: var(--accent-light); opacity: 1; }
+  .heatmap-table th.sortable.sort-desc::after { content: '↓'; color: var(--accent-light); opacity: 1; }
+
+  /* Heatmap pagination */
+  .hm-pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding: 8px 4px; }
+  .hm-pagination .hm-page-info { font-size: 12px; color: var(--text-muted); }
+  .hm-pagination .hm-page-controls { display: flex; align-items: center; gap: 6px; }
+  .hm-pagination .hm-page-btn {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; transition: all 0.15s;
+  }
+  .hm-pagination .hm-page-btn:hover:not(:disabled) { background: var(--accent); color: var(--white); border-color: var(--accent); }
+  .hm-pagination .hm-page-btn:disabled { opacity: 0.35; cursor: default; }
+  .hm-pagination .hm-page-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    cursor: pointer; background: transparent; border: 1px solid transparent; color: var(--text-muted);
+    transition: all 0.15s;
+  }
+  .hm-pagination .hm-page-num:hover { background: var(--surface-2); }
+  .hm-pagination .hm-page-num.active { background: var(--accent); color: var(--white); border-color: var(--accent); }
+  .hm-pagination .hm-page-size { display: flex; align-items: center; gap: 6px; }
+  .hm-pagination .hm-page-size label { font-size: 11px; color: var(--text-muted); }
+  .hm-pagination .hm-page-size select {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;
+  }
 
   @media print {
     .hm-high { background: #e6f9f0 !important; color: #00875a !important; }
@@ -1381,6 +1752,23 @@ const html = `<!DOCTYPE html>
     body.party-mode::before { display: none; }
   }
   @media print { body.party-mode { animation: none !important; } body.party-mode::before, .party-confetti { display: none !important; } }
+
+  /* Data-provenance tooltips */
+  [data-src] { position: relative; cursor: help; }
+  [data-src]:hover { z-index: 200; }
+  [data-src]::after {
+    content: attr(data-src);
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    background: #1a1d2e; color: #c8cad0; font-size: 11px; line-height: 1.45;
+    padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(108,92,231,0.25);
+    white-space: pre-line; max-width: 340px; width: max-content;
+    pointer-events: none; opacity: 0; transition: opacity 0.15s;
+    z-index: 201; box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  }
+  [data-src]:hover::after { opacity: 1; }
+  .kpi-card[data-src]::after { bottom: auto; top: 100%; margin-top: 4px; }
+  th[data-src]::after { bottom: auto; top: 100%; margin-top: 2px; left: 0; transform: none; }
+  @media print { [data-src]::after { display: none !important; } }
 </style>
 </head>
 <body>
@@ -1414,7 +1802,7 @@ const html = `<!DOCTYPE html>
 
 <!-- KPI Cards -->
 <div class="kpi-grid">
-  <div class="kpi-card accent">
+  <div class="kpi-card accent" data-src="PBI: [ACR (Last Closed Month)]&#10;Model: SQL 600 Performance Tracking&#10;Filter: Industry=Healthcare, SQL600=TRUE&#10;Query: Q1 Portfolio KPI Snapshot&#10;MoM: trend[last] vs trend[prev]&#10;YoY: [ACR Change Δ% - YTD YoY]">
     <div class="kpi-label">ACR (Last Closed Month)</div>
     <div class="kpi-value">${fmtDollar(snapshot.ACR_LCM)}</div>
     <div class="kpi-sub">
@@ -1422,37 +1810,37 @@ const html = `<!DOCTYPE html>
       <span>MoM · ${fmtPct(snapshot.ACR_YoY_Pct)} YoY</span>
     </div>
   </div>
-  <div class="kpi-card green">
+  <div class="kpi-card green" data-src="(Latest closed ACR − Jun 2025 ACR) × 12&#10;Source: Azure All-in-One (per-account MoM)&#10;Aggregated: sum of per-account deltas&#10;Covers: ${aioAccountMoM.length > 0 ? new Set(aioAccountMoM.map(r => r.TPID)).size + ' AIO accounts' : 'no AIO data'}${snapshot.AnnualizedGrowth == null ? '&#10;⚠ No AIO baseline available — showing —' : ''}">
     <div class="kpi-label">Annualized Growth</div>
     <div class="kpi-value">${fmtDollar(snapshot.AnnualizedGrowth)}</div>
     <div class="kpi-sub">Since June 2025 baseline</div>
   </div>
-  <div class="kpi-card blue">
+  <div class="kpi-card blue" data-src="PBI: [Pipeline ACR (Committed excl Blocked)]&#10;Model: SQL 600 Performance Tracking&#10;Filter: Industry=Healthcare, SQL600=TRUE&#10;Query: Q1 Portfolio KPI Snapshot&#10;Qualified: [Pipeline ACR (Qualified)]">
     <div class="kpi-label">Committed Pipeline</div>
     <div class="kpi-value">${fmtDollar(snapshot.PipeCommitted)}</div>
     <div class="kpi-sub">${fmtDollar(snapshot.PipeQualified)} qualified total</div>
   </div>
-  <div class="kpi-card yellow">
+  <div class="kpi-card yellow" data-src="PBI: [Pipeline ACR (Uncommitted)]&#10;Model: SQL 600 Performance Tracking&#10;Filter: Industry=Healthcare, SQL600=TRUE&#10;Query: Q1 Portfolio KPI Snapshot&#10;Opps: [# of Opportunities]&#10;Qualified: [# of Qualified Opportunities]">
     <div class="kpi-label">Uncommitted Pipeline</div>
     <div class="kpi-value">${fmtDollar(snapshot.PipeUncommitted)}</div>
     <div class="kpi-sub">${fmtNum(snapshot.TotalOpps)} opps · ${fmtNum(snapshot.QualifiedOpps)} qualified</div>
   </div>
-  <div class="kpi-card${parseDollar(snapshot.WoW_Change) >= 0 ? ' green' : ' red'}">
+  <div class="kpi-card${parseDollar(snapshot.WoW_Change) >= 0 ? ' green' : ' red'}" data-src="PBI: [Realized ACR + Baseline + Pipe WoW Change $]&#10;Model: SQL 600 Performance Tracking&#10;Filter: Industry=Healthcare, SQL600=TRUE&#10;Query: Q1 Portfolio KPI Snapshot&#10;⚠ Known issue: may include non-HLS scope">
     <div class="kpi-label">WoW Movement</div>
     <div class="kpi-value"><span class="${arrowClass(wowDir)}">${wowDir}</span> ${fmtDollar(snapshot.WoW_Change)}</div>
     <div class="kpi-sub">Realized + Baseline + Pipe</div>
   </div>
-  <div class="kpi-card accent">
+  <div class="kpi-card accent" data-src="${snapshot.PipelinePenetration != null && !snapshot._pipePenFallback ? `PBI: [SQL 600 Pipeline Penetration %]&#10;Model: SQL 600 Performance Tracking&#10;Filter: Industry=Healthcare, SQL600=TRUE&#10;Query: Q1 Portfolio KPI Snapshot` : `Fallback: AcctsWithModPipe / AccountCount&#10;= ${fmtNum(snapshot.AcctsWithModPipe)} / ${fmtNum(snapshot.AccountCount)}`}">
     <div class="kpi-label">Pipeline Penetration</div>
     <div class="kpi-value">${fmtPct(snapshot.PipelinePenetration)}</div>
     <div class="kpi-sub">${fmtNum(snapshot.AcctsWithModPipe)} with mod pipeline</div>
   </div>
-  <div class="kpi-card blue">
+  <div class="kpi-card blue" data-src="PBI: [Annualized SQL TAM]&#10;Model: SQL 600 Performance Tracking&#10;Filter: Industry=Healthcare, SQL600=TRUE&#10;Query: Q1 Portfolio KPI Snapshot&#10;Cores: [Total SQL Cores]">
     <div class="kpi-label">SQL TAM</div>
     <div class="kpi-value">${fmtDollar(snapshot.SQLTotalTAM)}</div>
     <div class="kpi-sub">${fmtNum(snapshot.SQLCores)} cores on-prem</div>
   </div>
-  <div class="kpi-card${parseDollar(snapshot.FactoryAttach) < 0.15 ? ' red' : ' green'}">
+  <div class="kpi-card${parseDollar(snapshot.FactoryAttach) < 0.15 ? ' red' : ' green'}" data-src="PBI: [Modernization Opportunities]&#10;Model: SQL 600 Performance Tracking&#10;Filter: Industry=Healthcare, SQL600=TRUE&#10;Query: Q1 Portfolio KPI Snapshot&#10;Factory Attach: [Factory Attach to Modernization Opportunities]&#10;Without Pipe: [Accounts Without Modernization Pipeline]">
     <div class="kpi-label">Modernization</div>
     <div class="kpi-value">${fmtNum(snapshot.ModernizationOpps)} opps</div>
     <div class="kpi-sub">${fmtPct(snapshot.FactoryAttach)} factory attach · ${fmtNum(snapshot.AcctsWithoutModPipe)} accts without</div>
@@ -1470,7 +1858,7 @@ const html = `<!DOCTYPE html>
 <div class="section">
   <div class="section-header">
     <div class="section-title">📈 ACR Trajectory · Realized + Forward Pipe</div>
-    <span class="section-badge ${momDir === '↑' ? 'badge-green' : momDir === '↓' ? 'badge-red' : 'badge-yellow'}">${momDir} ${trendValues.length >= 2 ? (((trendValues[trendValues.length - 1] - trendValues[trendValues.length - 2]) / trendValues[trendValues.length - 2]) * 100).toFixed(1) + '% MoM' : 'Flat'}</span>
+    <span class="section-badge ${momDir === '↑' ? 'badge-green' : momDir === '↓' ? 'badge-red' : 'badge-yellow'}">${momDir} ${Math.abs(momPct).toFixed(1)}% MOM</span>
   </div>
   <div class="chart-wrap chart-wrap-wide">${trendChartSvg}</div>
   <div class="chart-caption">
@@ -1546,12 +1934,12 @@ const html = `<!DOCTYPE html>
     <thead>
       <tr>
         <th>Vertical</th>
-        <th class="right">Accounts</th>
-        <th class="right">ACR (LCM)</th>
-        <th class="right">Committed Pipe</th>
-        <th class="right">Uncommitted Pipe</th>
-        <th class="right">Ann. Growth</th>
-        <th class="right">Mod Opps</th>
+        <th class="right" data-src="Count of SQL600 HLS accounts per vertical">Accounts</th>
+        <th class="right" data-src="PBI: [ACR (Last Closed Month)]&#10;Grouped by vertical within HLS">ACR (LCM)</th>
+        <th class="right" data-src="PBI: [Pipeline ACR (Committed excl Blocked)]&#10;Grouped by vertical within HLS">Committed Pipe</th>
+        <th class="right" data-src="PBI: [Pipeline ACR (Uncommitted)]&#10;Grouped by vertical within HLS">Uncommitted Pipe</th>
+        <th class="right" data-src="(Latest closed ACR − Jun 2025 ACR) × 12&#10;Source: Azure All-in-One (per-account MoM)&#10;Aggregated by vertical">Ann. Growth</th>
+        <th class="right" data-src="PBI: [Modernization Opportunities]&#10;Grouped by vertical within HLS">Mod Opps</th>
       </tr>
     </thead>
     <tbody>
@@ -1580,10 +1968,10 @@ const html = `<!DOCTYPE html>
         <th>#</th>
         <th>Account</th>
         <th>Vertical</th>
-        <th class="right">ACR (LCM)</th>
-        <th class="right">Committed</th>
-        <th class="right">Ann. Growth</th>
-        <th class="right">SQL Cores</th>
+        <th class="right" data-src="PBI: [ACR (Last Closed Month)]&#10;Per-account, TPID-scoped&#10;Query: Q5 Top 15 Accounts">ACR (LCM)</th>
+        <th class="right" data-src="PBI: [Pipeline ACR (Committed excl Blocked)]&#10;Per-account, TPID-scoped&#10;Query: Q5 Top 15 Accounts">Committed</th>
+        <th class="right" data-src="(Latest closed ACR − Jun 2025 ACR) × 12&#10;Source: Azure All-in-One (per-account MoM)&#10;Accounts not in AIO show —">Ann. Growth</th>
+        <th class="right" data-src="PBI: [Total SQL Cores]&#10;Per-account, TPID-scoped&#10;Query: Q5 Top 15 Accounts">SQL Cores</th>
       </tr>
     </thead>
     <tbody>
@@ -1607,7 +1995,8 @@ const html = `<!DOCTYPE html>
             <div class="detail-block"><div class="detail-label">Uncommitted</div><div class="detail-value">${fmtDollar(a.PipeUncommitted, false)}</div></div>
             <div class="detail-block"><div class="detail-label">Segment</div><div class="detail-value">${a.Segment || '—'}</div></div>
             <div class="detail-block"><div class="detail-label">Opps (Qual / Total)</div><div class="detail-value">${fmtNum(a.QualifiedOpps) || '—'} / ${fmtNum(a.TotalOpps) || '—'}</div></div>
-            <div class="detail-block"><div class="detail-label">Signals</div><div class="detail-value">${rationale}</div></div>
+            <div class="detail-block"><div class="detail-label">Signals</div><div class="detail-value">${rationale}</div></div>${attrBadges(a.TPID) ? `
+            <div class="detail-block detail-block-propensity"><div class="detail-label">Propensity</div><div class="detail-value">${attrBadges(a.TPID)}</div></div>` : ''}
             <div class="detail-block-full"><div class="detail-label">Recommended Next Step</div><div class="detail-next-step">${nextStep}</div></div>
           </div>
         </td>
@@ -1677,7 +2066,8 @@ const html = `<!DOCTYPE html>
             <div class="detail-inner">
               <div class="detail-block"><div class="detail-label">Category</div><div class="detail-value"><span class="tag tag-${r.Category?.includes('Renewal') ? 'renewal' : r.Category?.includes('Cores') ? 'cores' : 'field'}">${r.Category?.replace('(Excl. renewals)', '').trim() || '—'}</span></div></div>
               <div class="detail-block"><div class="detail-label">ACR (LCM)</div><div class="detail-value">${fmtDollar(r.ACR_LCM, false)}</div></div>
-              <div class="detail-block"><div class="detail-label">Signals</div><div class="detail-value">${rationale}</div></div>
+              <div class="detail-block"><div class="detail-label">Signals</div><div class="detail-value">${rationale}</div></div>${attrBadges(r.TPID) ? `
+              <div class="detail-block detail-block-propensity"><div class="detail-label">Propensity</div><div class="detail-value">${attrBadges(r.TPID)}</div></div>` : ''}
               <div class="detail-block-full"><div class="detail-label">Recommended Next Step</div><div class="detail-next-step">${nextStep}</div></div>
             </div>
           </td>
@@ -1723,7 +2113,8 @@ const html = `<!DOCTYPE html>
           <td colspan="4">
             <div class="detail-inner">
               <div class="detail-block"><div class="detail-label">Uncommitted Pipe</div><div class="detail-value">${fmtDollar(g.PipeUncommitted, false)}</div></div>
-              <div class="detail-block"><div class="detail-label">Signals</div><div class="detail-value">${rationale}</div></div>
+              <div class="detail-block"><div class="detail-label">Signals</div><div class="detail-value">${rationale}</div></div>${attrBadges(g.TPID) ? `
+              <div class="detail-block detail-block-propensity"><div class="detail-label">Propensity</div><div class="detail-value">${attrBadges(g.TPID)}</div></div>` : ''}
               <div class="detail-block-full"><div class="detail-label">Recommended Next Step</div><div class="detail-next-step">${nextStep}</div></div>
             </div>
           </td>
@@ -1746,56 +2137,227 @@ ${hasAioData ? `
   ${heatmapData ? `
   <div style="margin-bottom: 28px;">
     <div style="font-size:14px;font-weight:600;color:var(--white);margin-bottom:4px">Account MoM ACR Trend</div>
-    <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Click any row to expand a Total vs SQL-Adjacent breakdown chart</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Click any row to expand a Total${pillarIsPipelineBased ? '' : ' vs SQL-Adjacent'} breakdown chart. Click column headers to sort.</div>
     <div style="overflow-x:auto">
     <table class="heatmap-table" id="hm-table">
       <thead>
         <tr>
-          <th>Account</th>
-          ${heatmapData.months.map(m => `<th class="right" style="min-width:72px">${m}</th>`).join('')}
-          <th class="right">MoM Δ</th>
-          <th>Dir</th>
+          <th class="sortable" data-sort-key="name">Account</th>
+          ${heatmapData.months.map((m, mi) => `<th class="right sortable ${fiscalQuarterClass(m)}" style="min-width:72px" data-sort-key="month" data-month-idx="${mi}">${m}<span class="fq-label">${fiscalQuarterLabel(m)}</span></th>`).join('')}
+          <th class="right sortable" data-sort-key="delta">MoM Δ</th>
+          <th class="sortable" data-sort-key="dir">Dir</th>
         </tr>
       </thead>
-      <tbody>
-        ${heatmapData.accounts.slice(0, 20).map((a, idx) => {
-          const maxVal = Math.max(...a.monthValues);
-          const acctRow = topAccounts.find(t => t.TPID === a.tpid) || gapAccounts.find(g => g.TPID === a.tpid) || renewals.find(r => r.TPID === a.tpid) || { TopParent: a.name, TPID: a.tpid };
-          const colSpan = heatmapData.months.length + 3;
-          return `<tr class="hm-expand-row" data-tpid="${a.tpid}" data-idx="${idx}">
-            ${acctCell(acctRow, { maxWidth: 200, showTpid: false })}
-            ${a.monthValues.map(v => `<td class="hm-cell ${heatmapCellClass(v, maxVal)}">${v > 0 ? fmtDollar(v) : '—'}</td>`).join('')}
-            <td class="right" style="font-weight:600;color:${a.delta >= 0 ? 'var(--green)' : 'var(--red)'}">${a.delta !== 0 ? (a.delta > 0 ? '+' : '') + fmtDollar(a.delta) : '—'}</td>
-            <td class="hm-dir ${a.dir === '↑' ? 'arrow-up' : a.dir === '↓' ? 'arrow-down' : 'arrow-flat'}">${a.dir}</td>
-          </tr>
-          <tr class="hm-chart-row" id="chart-row-${a.tpid}">
-            <td colspan="${colSpan}">
-              <div class="hm-chart-container">
-                <div class="hm-chart-header">
-                  <div class="hm-chart-title">${a.name} — Total ACR vs SQL-Adjacent</div>
-                  <div class="hm-chart-legend">
-                    <div class="hm-chart-legend-item"><div class="hm-chart-legend-dot" style="background:var(--accent-light)"></div>Total ACR</div>
-                    <div class="hm-chart-legend-item"><div class="hm-chart-legend-dot" style="background:var(--green)"></div>SQL-Adjacent (Data & AI + Infra)</div>
-                  </div>
-                </div>
-                <div class="hm-chart-target" id="chart-target-${a.tpid}"></div>
-              </div>
-            </td>
-          </tr>`;
-        }).join('')}
+      <tbody id="hm-tbody">
       </tbody>
     </table>
     </div>
+    <div id="hm-pagination" class="hm-pagination"></div>
     <div class="chart-caption" style="margin-top:10px">
       Month-over-month ACR from full Azure consumption view. <strong>${heatmapData.accounts.filter(a => a.dir === '↑').length}</strong> accounts trending up, <strong>${heatmapData.accounts.filter(a => a.dir === '↓').length}</strong> declining.
       ${heatmapData.accounts.filter(a => a.dir === '↓').length > 0 ? ` Declining: <strong>${heatmapData.accounts.filter(a => a.dir === '↓').slice(0, 3).map(a => a.name).join(', ')}</strong>.` : ''}
     </div>
   </div>
+  <script>
+  (function() {
+    const HM_ACCOUNTS = ${JSON.stringify(heatmapData.accounts.map(a => {
+      const acctRow = topAccounts.find(t => t.TPID === a.tpid) || gapAccounts.find(g => g.TPID === a.tpid) || renewals.find(r => r.TPID === a.tpid) || { TopParent: a.name, TPID: a.tpid };
+      return {
+        tpid: a.tpid,
+        name: a.name,
+        monthValues: a.monthValues,
+        delta: a.delta,
+        dir: a.dir,
+        acctHtml: acctCell(acctRow, { maxWidth: 200, showTpid: false }),
+      };
+    }))};
+    const HM_MONTHS = ${JSON.stringify(heatmapData.months)};
+    const HM_MONTH_FQ_CLASSES = ${JSON.stringify(heatmapData.months.map(m => fiscalQuarterClass(m)))};
+    const HM_COLSPAN = HM_MONTHS.length + 3;
+    let hmPage = 0;
+    let hmPageSize = 15;
+    let hmSortKey = null;
+    let hmSortAsc = true;
+    let hmSorted = HM_ACCOUNTS.slice();
+
+    function hmCellClass(curr, prev) {
+      if (!curr || curr === 0) return 'hm-zero';
+      if (prev == null || prev === 0) return 'hm-flat';
+      var d = curr - prev, pct = Math.abs(d / prev);
+      if (pct < 0.005) return 'hm-flat';
+      return d > 0 ? 'hm-up' : 'hm-down';
+    }
+
+    function fmtD(v) {
+      if (v == null) return '—';
+      var abs = Math.abs(v);
+      if (abs >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
+      if (abs >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+      if (abs >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'K';
+      return '$' + Math.round(v);
+    }
+
+    function hmSort(key, monthIdx) {
+      if (hmSortKey === key && (key !== 'month' || hmSortAsc === true)) {
+        // Same key: toggle direction or clear
+        if (key === 'month') {
+          // first click on same month col: was desc? clear
+          hmSortAsc = !hmSortAsc;
+        } else {
+          hmSortAsc = !hmSortAsc;
+        }
+      } else {
+        hmSortKey = key;
+        hmSortAsc = key === 'name'; // name ascending by default, numbers descending
+      }
+      hmSorted = HM_ACCOUNTS.slice().sort(function(a, b) {
+        var va, vb;
+        if (key === 'name') { va = a.name.toLowerCase(); vb = b.name.toLowerCase(); return hmSortAsc ? va.localeCompare(vb) : vb.localeCompare(va); }
+        if (key === 'month') { va = a.monthValues[monthIdx] || 0; vb = b.monthValues[monthIdx] || 0; }
+        if (key === 'delta') { va = a.delta; vb = b.delta; }
+        if (key === 'dir') { var dm = {'↑':2,'→':1,'↓':0}; va = dm[a.dir]||1; vb = dm[b.dir]||1; }
+        return hmSortAsc ? va - vb : vb - va;
+      });
+      hmPage = 0;
+      renderHeatmap();
+    }
+
+    function renderHeatmap() {
+      var tbody = document.getElementById('hm-tbody');
+      var start = hmPage * hmPageSize;
+      var end = Math.min(start + hmPageSize, hmSorted.length);
+      var page = hmSorted.slice(start, end);
+      var html = '';
+      for (var i = 0; i < page.length; i++) {
+        var a = page[i];
+        var idx = start + i;
+        html += '<tr class="hm-expand-row" data-tpid="' + a.tpid + '" data-idx="' + idx + '">';
+        html += a.acctHtml;
+        for (var mi = 0; mi < a.monthValues.length; mi++) {
+          var v = a.monthValues[mi];
+          var prevV = mi > 0 ? a.monthValues[mi - 1] : null;
+          html += '<td class="hm-cell ' + hmCellClass(v, prevV) + ' ' + HM_MONTH_FQ_CLASSES[mi] + '">' + (v > 0 ? fmtD(v) : '—') + '</td>';
+        }
+        html += '<td class="right" style="font-weight:600;color:' + (a.delta >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (a.delta !== 0 ? (a.delta > 0 ? '+' : '') + fmtD(a.delta) : '—') + '</td>';
+        html += '<td class="hm-dir ' + (a.dir === '↑' ? 'arrow-up' : a.dir === '↓' ? 'arrow-down' : 'arrow-flat') + '">' + a.dir + '</td>';
+        html += '</tr>';
+        html += '<tr class="hm-chart-row" id="chart-row-' + a.tpid + '"><td colspan="' + HM_COLSPAN + '">';
+        html += '<div class="hm-chart-container"><div class="hm-chart-header">';
+        html += '<div class="hm-chart-title">' + a.name + ' — Total ACR vs SQL-Adjacent</div>';
+        html += '<div class="hm-chart-legend">';
+        html += '<div class="hm-chart-legend-item"><div class="hm-chart-legend-dot" style="background:var(--accent-light)"></div>Total ACR</div>';
+        html += '<div class="hm-chart-legend-item"><div class="hm-chart-legend-dot" style="background:var(--green)"></div>SQL-Adjacent (Data & AI + Infra)</div>';
+        html += '</div></div>';
+        html += '<div class="hm-chart-target" id="chart-target-' + a.tpid + '"></div>';
+        html += '</div></td></tr>';
+      }
+      tbody.innerHTML = html;
+
+      // Re-attach expand listeners
+      tbody.querySelectorAll('.hm-expand-row').forEach(function(row) {
+        row.addEventListener('click', function() {
+          var tpid = this.dataset.tpid;
+          var chartRow = document.getElementById('chart-row-' + tpid);
+          var target = document.getElementById('chart-target-' + tpid);
+          if (!chartRow || !target) return;
+          var wasExpanded = this.classList.contains('expanded');
+          tbody.querySelectorAll('.hm-expand-row.expanded').forEach(function(r) {
+            r.classList.remove('expanded');
+            var cr = document.getElementById('chart-row-' + r.dataset.tpid);
+            if (cr) cr.classList.remove('show');
+          });
+          if (!wasExpanded) {
+            this.classList.add('expanded');
+            chartRow.classList.add('show');
+            if (!target.querySelector('svg') && typeof window._hmRenderChart === 'function') window._hmRenderChart(target, tpid);
+          }
+        });
+      });
+
+      renderHmPagination();
+      updateSortIndicators();
+    }
+
+    function renderHmPagination() {
+      var total = hmSorted.length;
+      var totalPages = Math.ceil(total / hmPageSize);
+      var start = hmPage * hmPageSize + 1;
+      var end = Math.min((hmPage + 1) * hmPageSize, total);
+      var el = document.getElementById('hm-pagination');
+      if (totalPages <= 1 && hmPageSize >= total) { el.innerHTML = '<div class="hm-page-info">Showing all ' + total + ' accounts</div><div></div>'; return; }
+      var html = '<div class="hm-page-info">Showing ' + start + '–' + end + ' of ' + total + ' accounts</div>';
+      html += '<div class="hm-page-controls">';
+      html += '<button class="hm-page-btn" data-action="prev"' + (hmPage === 0 ? ' disabled' : '') + '>‹ Prev</button>';
+      // Page numbers
+      for (var p = 0; p < totalPages; p++) {
+        if (totalPages > 7 && p > 1 && p < totalPages - 2 && Math.abs(p - hmPage) > 1) {
+          if (p === 2 || p === totalPages - 3) html += '<span style="color:var(--text-muted);font-size:12px;padding:0 4px">…</span>';
+          continue;
+        }
+        html += '<span class="hm-page-num' + (p === hmPage ? ' active' : '') + '" data-page="' + p + '">' + (p + 1) + '</span>';
+      }
+      html += '<button class="hm-page-btn" data-action="next"' + (hmPage >= totalPages - 1 ? ' disabled' : '') + '>Next ›</button>';
+      html += '</div>';
+      html += '<div class="hm-page-size"><label>Per page:</label><select id="hm-page-size-sel">';
+      [10, 15, 25, 50].forEach(function(n) { html += '<option value="' + n + '"' + (n === hmPageSize ? ' selected' : '') + '>' + n + '</option>'; });
+      html += '<option value="all"' + (hmPageSize >= total ? ' selected' : '') + '>All</option>';
+      html += '</select></div>';
+      el.innerHTML = html;
+      el.querySelectorAll('.hm-page-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (this.dataset.action === 'prev' && hmPage > 0) hmPage--;
+          else if (this.dataset.action === 'next' && hmPage < totalPages - 1) hmPage++;
+          renderHeatmap();
+        });
+      });
+      el.querySelectorAll('.hm-page-num').forEach(function(num) {
+        num.addEventListener('click', function() { hmPage = parseInt(this.dataset.page); renderHeatmap(); });
+      });
+      var sel = document.getElementById('hm-page-size-sel');
+      if (sel) sel.addEventListener('change', function() {
+        hmPageSize = this.value === 'all' ? hmSorted.length : parseInt(this.value);
+        hmPage = 0;
+        renderHeatmap();
+      });
+    }
+
+    function updateSortIndicators() {
+      document.querySelectorAll('#hm-table th.sortable').forEach(function(th) {
+        th.classList.remove('sort-asc', 'sort-desc');
+        var k = th.dataset.sortKey;
+        if (k === hmSortKey) {
+          if (k === 'month') {
+            var mi = parseInt(th.dataset.monthIdx);
+            // Only highlight the active month column — sortKey 'month' is shared
+            // so we need to check which monthIdx was last sorted on
+            if (mi === window._hmSortMonthIdx) th.classList.add(hmSortAsc ? 'sort-asc' : 'sort-desc');
+          } else {
+            th.classList.add(hmSortAsc ? 'sort-asc' : 'sort-desc');
+          }
+        }
+      });
+    }
+
+    // Header click handlers
+    document.querySelectorAll('#hm-table th.sortable').forEach(function(th) {
+      th.addEventListener('click', function() {
+        var key = this.dataset.sortKey;
+        var monthIdx = parseInt(this.dataset.monthIdx);
+        if (key === 'month') window._hmSortMonthIdx = monthIdx;
+        hmSort(key, monthIdx);
+      });
+    });
+
+    // Initial render — sorted by latest ACR descending (default)
+    renderHeatmap();
+  })();
+  </script>
   ` : ''}
 
   ${pillarData ? `
   <div style="margin-bottom: 28px;">
-    <div style="font-size:14px;font-weight:600;color:var(--white);margin-bottom:12px">Service Pillar Mix (SQL600-Relevant Highlighted)</div>
+    <div style="font-size:14px;font-weight:600;color:var(--white);margin-bottom:${pillarIsPipelineBased ? '4' : '12'}px">Service Pillar Mix (SQL600-Relevant Highlighted)</div>
+    ${pillarIsPipelineBased ? '<div style="font-size:11px;color:var(--yellow);margin-bottom:12px">⚠️ Based on pipeline ACR (not consumption) — percentages reflect pipeline composition, not actual Azure spend mix</div>' : ''}
     <div class="pillar-legend">
       ${[...allPillarsUsed].sort((a, b) => {
         const ai = SQL_REL_PILLARS_SET.has(a) ? 0 : 1;
@@ -1812,7 +2374,7 @@ ${hasAioData ? `
         <tr>
           <th>Account</th>
           <th style="min-width:280px">Service Mix</th>
-          <th class="right">Total ACR</th>
+          <th class="right">${pillarIsPipelineBased ? 'Pipeline ACR' : 'Total ACR'}</th>
           <th class="right">SQL-Adjacent %</th>
         </tr>
       </thead>
@@ -1856,7 +2418,7 @@ ${hasAioData ? `
           const pa = parseDollar(a.BudgetAttainPct), pb = parseDollar(b.BudgetAttainPct);
           return (isNaN(pa) ? 999 : pa) - (isNaN(pb) ? 999 : pb);
         }).slice(0, 20).map(a => {
-          const sig = budgetSignal(a.BudgetAttainPct);
+          const sig = budgetSignal(a.BudgetAttainPct, a.ACR_YTD);
           const acctRow = topAccounts.find(t => t.TPID === a.TPID) || gapAccounts.find(g => g.TPID === a.TPID) || renewals.find(r => r.TPID === a.TPID) || { TopParent: a.Account, TPID: a.TPID };
           return `<tr>
             ${acctCell(acctRow, { maxWidth: 200, showTpid: false })}
@@ -1869,7 +2431,7 @@ ${hasAioData ? `
       </tbody>
     </table>
     <div class="chart-caption" style="margin-top:10px">
-      Budget attainment from Azure All-in-One (org-level targets). <strong class="budget-below">${aioBudgetAttainment.filter(a => { const v = typeof a.BudgetAttainPct === 'number' ? a.BudgetAttainPct : parseFloat(a.BudgetAttainPct); const p = v > 2 ? v : v * 100; return !isNaN(p) && p < 80; }).length}</strong> accounts below 80% target.
+      Budget attainment from Azure All-in-One (org-level targets). <strong class="budget-below">${aioBudgetAttainment.filter(a => budgetSignal(a.BudgetAttainPct, a.ACR_YTD).cls === 'budget-below').length}</strong> accounts below 80% target${aioBudgetAttainment.filter(a => budgetSignal(a.BudgetAttainPct, a.ACR_YTD).cls === 'budget-nodata').length ? ` · <strong style="color:var(--text-muted)">${aioBudgetAttainment.filter(a => budgetSignal(a.BudgetAttainPct, a.ACR_YTD).cls === 'budget-nodata').length}</strong> with no budget data` : ''}.
     </div>
   </div>
   ` : ''}
@@ -1917,29 +2479,9 @@ ${hasAioData ? `
   }
 
   // ── Expandable heatmap charts ──────────────────────────────────
-  document.querySelectorAll('.hm-expand-row').forEach(row => {
-    row.addEventListener('click', () => {
-      const tpid = row.dataset.tpid;
-      const chartRow = document.getElementById('chart-row-' + tpid);
-      const target = document.getElementById('chart-target-' + tpid);
-      if (!chartRow || !target) return;
-
-      const wasExpanded = row.classList.contains('expanded');
-      // Collapse all first
-      document.querySelectorAll('.hm-expand-row.expanded').forEach(r => {
-        r.classList.remove('expanded');
-        const cr = document.getElementById('chart-row-' + r.dataset.tpid);
-        if (cr) cr.classList.remove('show');
-      });
-
-      if (!wasExpanded) {
-        row.classList.add('expanded');
-        chartRow.classList.add('show');
-        // Render chart if not already rendered
-        if (!target.querySelector('svg')) renderChart(target, tpid);
-      }
-    });
-  });
+  // Expand/collapse is now handled by the paginated heatmap renderer.
+  // Expose renderChart globally so the pagination JS can call it.
+  window._hmRenderChart = renderChart;
 
   function renderChart(container, tpid) {
     const d = CHART_DATA[tpid];
@@ -1947,6 +2489,10 @@ ${hasAioData ? `
       container.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:13px">No monthly data available for this account</div>';
       return;
     }
+
+    // When SQL-adjacent data isn't available (pipeline-only or no pillar match),
+    // show a notice instead of a misleading $0 flat line
+    const hasSqlData = !d.noSqlData && d.sqlAdj.some(v => v > 0);
 
     const W = container.clientWidth || 700;
     const H = 220;
@@ -1969,10 +2515,13 @@ ${hasAioData ? `
 
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map(r => r * maxV);
 
-    const sqlAreaPts = d.sqlAdj.map((v, i) => [x(i), y(v)]);
-    const sqlArea = 'M' + sqlAreaPts.map(p => p.join(',')).join(' L')
-      + ' L' + x(n - 1) + ',' + (M.top + ih) + ' L' + x(0) + ',' + (M.top + ih) + ' Z';
-    const sqlLine = 'M' + sqlAreaPts.map(p => p.join(',')).join(' L');
+    let sqlArea = '', sqlLine = '';
+    if (hasSqlData) {
+      const sqlAreaPts = d.sqlAdj.map((v, i) => [x(i), y(v)]);
+      sqlArea = 'M' + sqlAreaPts.map(p => p.join(',')).join(' L')
+        + ' L' + x(n - 1) + ',' + (M.top + ih) + ' L' + x(0) + ',' + (M.top + ih) + ' Z';
+      sqlLine = 'M' + sqlAreaPts.map(p => p.join(',')).join(' L');
+    }
 
     const totalPts = d.total.map((v, i) => [x(i), y(v)]);
     const totalLine = 'M' + totalPts.map(p => p.join(',')).join(' L');
@@ -1994,9 +2543,14 @@ ${hasAioData ? `
       svgHTML += '<text x="' + (M.left - 8) + '" y="' + (y(v) + 4) + '" fill="#8b8fa3" font-size="10" text-anchor="end">' + fmtD(v) + '</text>';
     });
 
-    // SQL-adjacent area + line
-    svgHTML += '<path d="' + sqlArea + '" fill="url(#sqlGrad' + tpid + ')"/>';
-    svgHTML += '<path d="' + sqlLine + '" fill="none" stroke="#00b894" stroke-width="2" stroke-dasharray="4,3"/>';
+    // SQL-adjacent area + line (only when consumption-based pillar data is available)
+    if (hasSqlData) {
+      svgHTML += '<path d="' + sqlArea + '" fill="url(#sqlGrad' + tpid + ')"/>';
+      svgHTML += '<path d="' + sqlLine + '" fill="none" stroke="#00b894" stroke-width="2" stroke-dasharray="4,3"/>';
+    } else {
+      // Show "no data" annotation instead of a misleading $0 line
+      svgHTML += '<text x="' + (M.left + iw / 2) + '" y="' + (M.top + ih - 16) + '" fill="#8b8fa3" font-size="11" text-anchor="middle" font-style="italic">SQL-Adjacent breakdown unavailable — consumption-level service data not loaded</text>';
+    }
 
     // Total line
     svgHTML += '<path d="' + totalLine + '" fill="none" stroke="#a29bfe" stroke-width="2.5"/>';
@@ -2058,19 +2612,25 @@ ${hasAioData ? `
         // Build tooltip
         let html = '<div class="cpt-month">' + month + '</div>';
         html += '<div class="cpt-row"><span class="cpt-label">Total ACR</span><span class="cpt-val cpt-total">' + fmtD(v) + '</span></div>';
-        html += '<div class="cpt-row"><span class="cpt-label">SQL-Adjacent</span><span class="cpt-val cpt-sql">' + fmtD(sqlV) + ' (' + sqlPct + '%)</span></div>';
-        html += '<div class="cpt-row"><span class="cpt-label">Non-SQL</span><span class="cpt-val" style="color:var(--text-muted)">' + fmtD(v - sqlV) + '</span></div>';
+        if (hasSqlData) {
+          html += '<div class="cpt-row"><span class="cpt-label">SQL-Adjacent</span><span class="cpt-val cpt-sql">' + fmtD(sqlV) + ' (' + sqlPct + '%)</span></div>';
+          html += '<div class="cpt-row"><span class="cpt-label">Non-SQL</span><span class="cpt-val" style="color:var(--text-muted)">' + fmtD(v - sqlV) + '</span></div>';
+        } else {
+          html += '<div class="cpt-row"><span class="cpt-label" style="color:var(--text-muted);font-style:italic">SQL-Adjacent data not available</span></div>';
+        }
 
         if (prevV !== null) {
           const totalDelta = v - prevV;
-          const sqlDelta = sqlV - prevSql;
           const totalDPct = prevV > 0 ? ((totalDelta / prevV) * 100).toFixed(1) : '—';
-          const sqlDPct = prevSql > 0 ? ((sqlDelta / prevSql) * 100).toFixed(1) : '—';
           const tCls = totalDelta >= 0 ? 'cpt-up' : 'cpt-down';
-          const sCls = sqlDelta >= 0 ? 'cpt-up' : 'cpt-down';
           html += '<div class="cpt-delta">';
           html += '<div class="cpt-row"><span class="cpt-label">Total MoM</span><span class="' + tCls + '">' + (totalDelta >= 0 ? '+' : '') + fmtD(totalDelta) + ' (' + (totalDelta >= 0 ? '+' : '') + totalDPct + '%)</span></div>';
-          html += '<div class="cpt-row"><span class="cpt-label">SQL MoM</span><span class="' + sCls + '">' + (sqlDelta >= 0 ? '+' : '') + fmtD(sqlDelta) + ' (' + (sqlDelta >= 0 ? '+' : '') + sqlDPct + '%)</span></div>';
+          if (hasSqlData) {
+            const sqlDelta = sqlV - prevSql;
+            const sqlDPct = prevSql > 0 ? ((sqlDelta / prevSql) * 100).toFixed(1) : '—';
+            const sCls = sqlDelta >= 0 ? 'cpt-up' : 'cpt-down';
+            html += '<div class="cpt-row"><span class="cpt-label">SQL MoM</span><span class="' + sCls + '">' + (sqlDelta >= 0 ? '+' : '') + fmtD(sqlDelta) + ' (' + (sqlDelta >= 0 ? '+' : '') + sqlDPct + '%)</span></div>';
+          }
           html += '</div>';
         }
 

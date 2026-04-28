@@ -99,6 +99,8 @@ Ask the user (skip items they've already provided):
 
 2. **Get schema** — call `powerbi-remote:GetSemanticModelSchema({ artifactId })`.
 
+   > **⚠️ Known limitation:** Large models (e.g., SQL600, AIO) fail with `MPC -32603: Unexpected character encountered while parsing value` at `verifiedAnswers[0].Bindings.Values`. If this error occurs, fall back to targeted `EVALUATE TOPN(1, '<TableName>')` probes for each table to discover columns manually. See any existing `schema-mapping.md` file for the pattern.
+
 3. **Inspect report** (if user referenced a report) — call `powerbi-remote:GetReportMetadata({ reportObjectId })` to understand how the model is used in practice: which tables, filters, and measures the report author intended.
 
 4. **Present a plain-language summary** of what's in the model:

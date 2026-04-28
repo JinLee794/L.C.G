@@ -10,8 +10,8 @@
  * for targeted CRM lookups, keeping agent context lean.
  *
  * Usage:
- *   node scripts/helpers/classify-sql-pipeline.js /tmp/sql600-pipeline.json
- *   cat /tmp/sql600-pipeline.json | node scripts/helpers/classify-sql-pipeline.js
+ *   node scripts/helpers/classify-sql-pipeline.js .copilot/docs/sql600-pipeline.json
+ *   cat .copilot/docs/sql600-pipeline.json | node scripts/helpers/classify-sql-pipeline.js
  *
  * Input JSON shape (from PBI ExecuteQuery):
  *   {

@@ -528,10 +528,17 @@ function registerAlias() {
   console.log();
   console.log("  \x1b[1m\x1b[36m╔══════════════════════════════════════════════════════════╗\x1b[0m");
   console.log("  \x1b[1m\x1b[36m║                                                          ║\x1b[0m");
+<<<<<<< Updated upstream
   console.log("  \x1b[1m\x1b[36m║   Installing the 'lcg' CLI binary globally              ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m║                                                          ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m║   This registers bin/lcg.js as a global command so      ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m║   you can run 'lcg' from any terminal, anywhere.        ║\x1b[0m");
+=======
+  console.log("  \x1b[1m\x1b[36m║   Installing the 'lcg' CLI binary globally                ║\x1b[0m");
+  console.log("  \x1b[1m\x1b[36m║                                                          ║\x1b[0m");
+  console.log("  \x1b[1m\x1b[36m║   This registers bin/lcg.js as a global command so        ║\x1b[0m");
+  console.log("  \x1b[1m\x1b[36m║   you can run 'lcg' from any terminal, anywhere.          ║\x1b[0m");
+>>>>>>> Stashed changes
   console.log("  \x1b[1m\x1b[36m║                                                          ║\x1b[0m");
   console.log("  \x1b[1m\x1b[36m╚══════════════════════════════════════════════════════════╝\x1b[0m");
   console.log();
@@ -545,7 +552,12 @@ function registerAlias() {
   }
 
   // Check if 'lcg' is already linked and working
+<<<<<<< Updated upstream
   const existing = hasReachableLcgCommand();
+=======
+  const whichCmd = isWindows ? "where lcg" : "which lcg";
+  const existing = tryRun(whichCmd);
+>>>>>>> Stashed changes
 
   try {
     // --ignore-scripts prevents recursive postinstall
@@ -801,6 +813,28 @@ function runVaultSync() {
     ok("All starter files already present.");
   }
 
+  // Inject lcg_repo into preferences.md frontmatter so the Obsidian
+  // automation dashboard can invoke repo scripts directly.
+  const prefsPath = join(resolved, "_lcg", "preferences.md");
+  if (existsSync(prefsPath)) {
+    const prefsContent = readFileSync(prefsPath, "utf-8");
+    const repoPathEscaped = ROOT.replace(/\\/g, "/");
+    if (prefsContent.includes('lcg_repo: ""') || prefsContent.includes("lcg_repo: ''")) {
+      const updated = prefsContent.replace(/lcg_repo:\s*["']{2}/, `lcg_repo: "${repoPathEscaped}"`);
+      writeFileSync(prefsPath, updated, "utf-8");
+      ok(`Set lcg_repo in preferences.md → ${repoPathEscaped}`);
+    } else if (prefsContent.includes("lcg_repo:")) {
+      // Already set — check if it matches current repo
+      const match = prefsContent.match(/lcg_repo:\s*["']?([^"'\n]+)["']?/);
+      const existing = match?.[1]?.trim();
+      if (existing && existing !== repoPathEscaped) {
+        info(`lcg_repo is set to: ${existing} (current repo: ${repoPathEscaped})`);
+      } else {
+        ok("lcg_repo already configured.");
+      }
+    }
+  }
+
   // Sync sidekick
   const { copied } = syncSidekick(resolved);
   if (copied.length > 0) {
@@ -892,14 +926,23 @@ if (checkMode) {
       console.log();
       console.log("  \x1b[1m\x1b[32m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+<<<<<<< Updated upstream
       console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                    │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│   Run from any terminal, any directory:                     │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│       'lcg'                                                 │\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│       'lcg' -p \"morning triage\"                             │\x1b[0m");
+=======
+      console.log("  \x1b[1m\x1b[32m│   ★  'lcg' CLI installed successfully!                      │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
-      console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,          │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   Run from any terminal, any directory:                     │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│       lcg                                                   │\x1b[0m");
+      console.log("  \x1b[1m\x1b[33m│       lcg -p \"morning triage\"                               │\x1b[0m");
+>>>>>>> Stashed changes
+      console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
+      console.log("  \x1b[1m\x1b[32m│   Launches Copilot CLI with all L.C.G servers,              │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│   agents, and skills — no need to cd into the repo.        │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[32m└─────────────────────────────────────────────────────────────┘\x1b[0m");
@@ -908,7 +951,11 @@ if (checkMode) {
       console.log();
       console.log("  \x1b[1m\x1b[33m┌─────────────────────────────────────────────────────────────┐\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
+<<<<<<< Updated upstream
       console.log("  \x1b[1m\x1b[33m│   ⚠  'lcg' CLI was NOT installed globally.                │\x1b[0m");
+=======
+      console.log("  \x1b[1m\x1b[33m│   ⚠  'lcg' CLI was NOT installed globally.                  │\x1b[0m");
+>>>>>>> Stashed changes
       console.log("  \x1b[1m\x1b[33m│   See the instructions above to register it manually.      │\x1b[0m");
       console.log("  \x1b[1m\x1b[33m│                                                             │\x1b[0m");
       console.log("  \x1b[1m\x1b[33m└─────────────────────────────────────────────────────────────┘\x1b[0m");

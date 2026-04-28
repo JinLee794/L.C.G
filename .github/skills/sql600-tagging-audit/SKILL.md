@@ -185,7 +185,7 @@ If normalized inbox data is available, correlate wins with potential winwire evi
      - `oil:get_note_metadata` for `Daily/SQL600-HLS/sql600-tagging-audit-<YYYY-MM-DD>.md`
      - If exists → `oil:atomic_replace` with `mtime_ms`
      - If not → `oil:create_note`
-   - **If OIL MCP server is NOT available:** Write to `.copilot/docs/sql600-tagging-audit-<YYYY-MM-DD>.md` via `create_file`. This keeps the report accessible in the workspace for later vault ingestion.
+   - **If OIL MCP server is NOT available:** Write to `.copilot/docs/sql600-tagging-audit-<YYYY-MM-DD>.md` via `create_file` (tier 3 fallback per `shared-patterns.instructions.md` § Artifact Output Directory).
 
 ---
 
@@ -208,13 +208,13 @@ If normalized inbox data is available, correlate wins with potential winwire evi
 ### Pipeline Flow
 
 ```
-PBI Q1+Q2 → /tmp/sql600-pipeline-<DATE>.json
+PBI Q1+Q2 → .copilot/docs/sql600-pipeline-<DATE>.json
             ↓
-classify-sql-pipeline.js → /tmp/sql600-classified-<DATE>.json
+classify-sql-pipeline.js → .copilot/docs/sql600-classified-<DATE>.json
             ↓                    (compact: just SQL opps + gap accounts)
-CRM batch → /tmp/sql600-crm-<DATE>.json
+CRM batch → .copilot/docs/sql600-crm-<DATE>.json
             ↓
-audit-sales-play.js → /tmp/sql600-audit-<DATE>.json  (or --format md → vault-ready)
+audit-sales-play.js → .copilot/docs/sql600-audit-<DATE>.json  (or --format md → vault-ready)
 ```
 
 ### Step-by-Step with Scripts
@@ -227,21 +227,21 @@ DATE=$(date +%F)
 #    → Agent saves this after PBI queries
 
 # 2. Classify SQL workloads (Tier 1/2/3) + identify gap accounts
-node scripts/helpers/classify-sql-pipeline.js /tmp/sql600-pipeline-$DATE.json \
-  > /tmp/sql600-classified-$DATE.json
+node scripts/helpers/classify-sql-pipeline.js .copilot/docs/sql600-pipeline-$DATE.json \
+  > .copilot/docs/sql600-classified-$DATE.json
 
 # 3. Agent reads classified summary (small!) and does targeted CRM lookups
 #    for unique opp IDs in .summary.uniqueOppIds
-#    → Agent saves CRM results to /tmp/sql600-crm-$DATE.json
+#    → Agent saves CRM results to .copilot/docs/sql600-crm-$DATE.json
 
 # 4. Cross-reference sales plays and generate audit report
 node scripts/helpers/audit-sales-play.js \
-  --pipeline /tmp/sql600-classified-$DATE.json \
-  --previous /tmp/sql600-classified-$PREV_DATE.json \
-  --crm /tmp/sql600-crm-$DATE.json \
-  --mail /tmp/mail-normalized-$DATE.json \
+  --pipeline .copilot/docs/sql600-classified-$DATE.json \
+  --previous .copilot/docs/sql600-classified-$PREV_DATE.json \
+  --crm .copilot/docs/sql600-crm-$DATE.json \
+  --mail .copilot/docs/mail-normalized-$DATE.json \
   --format md \
-  --output /tmp/sql600-audit-$DATE.md
+  --output .copilot/docs/sql600-audit-$DATE.md
 
 # 5. Agent reads compact audit output and persists:
 #    - If OIL MCP available → oil:create_note / oil:atomic_replace to Daily/SQL600-HLS/
@@ -257,9 +257,9 @@ node scripts/helpers/audit-sales-play.js \
 
 ### Agent Instructions for Script Use
 
-1. **After PBI queries:** Write `{ "accounts": [...], "pipeline": [...] }` to `/tmp/sql600-pipeline-<DATE>.json` using `echo` or heredoc
+1. **After PBI queries:** Write `{ "accounts": [...], "pipeline": [...] }` to `.copilot/docs/sql600-pipeline-<DATE>.json` using `echo` or heredoc
 2. **Run classifier:** Execute `classify-sql-pipeline.js` and **read only `.summary`** from the output — this gives `uniqueOppIds` for CRM lookups + gap account count
-3. **CRM lookups:** Use `uniqueOppIds` to batch-fetch opportunities via `mcp_msx_list_opportunities`. Save results to `/tmp/sql600-crm-<DATE>.json`
+3. **CRM lookups:** Use `uniqueOppIds` to batch-fetch opportunities via `mcp_msx_list_opportunities`. Save results to `.copilot/docs/sql600-crm-<DATE>.json`
 4. **Run auditor:** Execute `audit-sales-play.js` with `--format md`. Read the markdown output and persist to vault
   - Include `--previous` to detect uncommitted -> committed wins
   - Include `--mail` to correlate wins with winwire inbox evidence
