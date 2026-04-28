@@ -284,6 +284,28 @@ function parseNarrative(mdPath) {
       const bullets = [...body.matchAll(/^\s*-\s*\[([!*di?>])\]\s+(.+)$/gm)]
         .map(m => ({ marker: m[1], text: m[2].trim() }));
       sections[key] = bullets;
+    } else if (key === 'executiveSummary') {
+      // Capture ALL standalone blockquote paragraphs (each `>` block becomes one <p>).
+      // Stop at the first `---` horizontal rule so trailing portfolio/meta blockquotes
+      // (which sit outside the summary in the template) are not included.
+      // Skip the template "Freedom Level" instruction blockquote if present.
+      const hr = body.search(/^\s*---\s*$/m);
+      const scope = hr >= 0 ? body.slice(0, hr) : body;
+      const paras = [];
+      const bqRe = /(?:^|\n)((?:^>[^\n]*\n?)+)/gm;
+      let bqm;
+      while ((bqm = bqRe.exec(scope)) !== null) {
+        const quote = bqm[1]
+          .split('\n')
+          .map(l => l.replace(/^>\s?/, ''))
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (!quote) continue;
+        if (/^\*\*Freedom Level/i.test(quote)) continue;
+        paras.push(quote);
+      }
+      if (paras.length) sections[key] = paras;
     } else {
       // Extract first blockquote paragraph (supports multi-line `> ...`)
       const bqMatch = body.match(/(?:^|\n)((?:^>[^\n]*\n?)+)/m);
@@ -302,6 +324,7 @@ function parseNarrative(mdPath) {
 }
 function classifyHeading(title) {
   const t = title.toLowerCase();
+  if (t.includes('executive summary')) return 'executiveSummary';
   if (t.includes('headline')) return 'headline';
   if (t.includes('trajectory') || t.includes('trend')) return 'trajectory';
   if (t.includes('vertical')) return 'vertical';
@@ -1769,9 +1792,243 @@ const html = `<!DOCTYPE html>
   .kpi-card[data-src]::after { bottom: auto; top: 100%; margin-top: 4px; }
   th[data-src]::after { bottom: auto; top: 100%; margin-top: 2px; left: 0; transform: none; }
   @media print { [data-src]::after { display: none !important; } }
+
+  /* ── Cover page ─────────────────────────────────────────────── */
+  .cover-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--header-gradient, linear-gradient(160deg, #0f1117 0%, #1e1b4b 25%, #312e81 50%, #4c1d95 75%, #1e1b4b 100%));
+    position: relative;
+    overflow: hidden;
+    padding: 3rem 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .cover-page::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 20% 50%, rgba(108,92,231,0.18) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(162,155,254,0.12) 0%, transparent 40%),
+      radial-gradient(ellipse at 60% 80%, rgba(236,72,153,0.08) 0%, transparent 40%);
+    pointer-events: none;
+  }
+  .cover-page::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #ef4444, #f97316, #eab308, #22c55e, #06b6d4, var(--accent), #8b5cf6, #d946ef);
+  }
+  .cover-content {
+    position: relative;
+    max-width: 880px;
+    width: 100%;
+    text-align: center;
+    color: var(--white);
+    z-index: 1;
+  }
+  .cover-logo {
+    display: inline-block;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, var(--accent-light), #c084fc, #f472b6, #fb923c, #4ade80, #22d3ee);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 1.25rem;
+  }
+  .cover-title {
+    font-size: 2.6rem;
+    font-weight: 800;
+    line-height: 1.18;
+    margin-bottom: 0.6rem;
+    color: var(--white);
+    letter-spacing: -0.5px;
+  }
+  .cover-date {
+    font-size: 1rem;
+    color: var(--accent-light);
+    margin-bottom: 1.75rem;
+  }
+  .cover-divider {
+    width: 120px; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-light), transparent);
+    margin: 0 auto 1.75rem;
+  }
+  .cover-summary {
+    text-align: left;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 16px;
+    padding: 2rem 2.5rem;
+    backdrop-filter: blur(12px);
+    margin-bottom: 1.75rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  }
+  .cover-summary h2 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--accent-light);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    margin-bottom: 1.1rem;
+  }
+  .cover-summary p {
+    font-size: 0.95rem;
+    line-height: 1.75;
+    color: rgba(255,255,255,0.88);
+    margin-bottom: 0.95rem;
+  }
+  .cover-summary p:last-child { margin-bottom: 0; }
+  .cover-summary strong { color: var(--white); font-weight: 700; }
+  .cover-meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.85rem;
+    margin-bottom: 1.5rem;
+  }
+  .cover-meta-item {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 0.8rem 0.9rem;
+  }
+  .cover-meta-item span {
+    display: block;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent-light);
+    margin-bottom: 0.3rem;
+  }
+  .cover-meta-item strong {
+    font-size: 0.95rem;
+    color: var(--white);
+    font-weight: 700;
+  }
+  .cover-scroll-hint {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.55);
+    animation: cover-bounce 2s ease-in-out infinite;
+  }
+  @keyframes cover-bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(6px); }
+  }
+  @media (max-width: 768px) {
+    .cover-title { font-size: 1.8rem; }
+    .cover-meta { grid-template-columns: repeat(2, 1fr); }
+    .cover-summary { padding: 1.4rem; }
+  }
+  @media print {
+    .cover-page { page-break-after: always; min-height: auto; padding: 1.5rem 1.25rem; }
+    .cover-page::before, .cover-page::after { display: none; }
+    .cover-summary { background: #f5f3ff !important; border-color: #c4b5fd !important; backdrop-filter: none; box-shadow: none; }
+    .cover-summary h2 { color: #5b4cbb !important; }
+    .cover-summary p { color: #1a1a2e !important; font-size: 0.85rem; line-height: 1.55; }
+    .cover-summary strong { color: #111 !important; }
+    .cover-title { color: #fff !important; font-size: 1.9rem; }
+    .cover-date { color: rgba(255,255,255,0.85) !important; }
+    .cover-meta-item { background: rgba(255,255,255,0.95) !important; border-color: #ddd !important; }
+    .cover-meta-item span { color: #5b4cbb !important; }
+    .cover-meta-item strong { color: #111 !important; }
+    .cover-scroll-hint { display: none; }
+  }
+
+  /* ── Scroll-to-top button ───────────────────────────────────── */
+  .scroll-top-btn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--white);
+    border: 1px solid rgba(255,255,255,0.18);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4), 0 0 0 1px rgba(108,92,231,0.3);
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease, background 0.15s ease;
+    z-index: 9000;
+  }
+  .scroll-top-btn.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+  .scroll-top-btn:hover { background: var(--accent-light); transform: translateY(-2px); }
+  .scroll-top-btn:active { transform: translateY(0); }
+  .scroll-top-btn svg { width: 20px; height: 20px; fill: currentColor; }
+  @media print { .scroll-top-btn { display: none !important; } }
 </style>
 </head>
 <body>
+
+<!-- Cover Page -->
+${(() => {
+  const generatedDate = new Date(generated + 'T00:00:00');
+  const longDate = generatedDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  // Use the latest closed trend month to derive the fiscal quarter label
+  const lastClosed = trendClosed[trendClosed.length - 1] || trend[trend.length - 1];
+  const fqLabel = lastClosed && lastClosed.FiscalQuarter
+    ? lastClosed.FiscalQuarter.replace('-', ' ') + ' Close'
+    : '';
+  const dateLine = fqLabel ? `${longDate} · ${fqLabel}` : longDate;
+  const industryCount = ranking.filter(r => r.Industry).length;
+
+  // Build paragraphs from narrative (preferred) or compose a deterministic fallback
+  let paraHtml;
+  if (Array.isArray(narrative.executiveSummary) && narrative.executiveSummary.length) {
+    paraHtml = narrative.executiveSummary.map(p => `<p>${mdInline(p)}</p>`).join('\n      ');
+  } else {
+    const topAcct = (topAccounts && topAccounts[0]) || null;
+    const topAcctName = topAcct ? (topAcct.TopParent || '').replace(/\b([A-Z])([A-Z]+)\b/g, (_, a, b) => a + b.toLowerCase()) : null;
+    const topAcctShare = topAcct && snapshot.ACR_LCM
+      ? Math.round((parseDollar(topAcct.ACR_LCM) / parseDollar(snapshot.ACR_LCM)) * 100)
+      : null;
+    const dominantVert = verticals && verticals[0] ? verticals[0] : null;
+    const dominantShare = dominantVert && snapshot.ACR_LCM
+      ? Math.round((parseDollar(dominantVert.ACR_LCM) / parseDollar(snapshot.ACR_LCM)) * 100)
+      : null;
+    const gapCount = (gapAccounts || []).length;
+    paraHtml = [
+      `<p>HLS holds <strong>${fmtDollar(snapshot.ACR_LCM)}</strong> ACR (LCM)${snapshot.ACR_YoY_Pct ? ` with <strong>${snapshot.ACR_YoY_Pct} YoY</strong>` : ''}, ranking <strong>#${hlsRank} of ${industryCount}</strong> SQL600 industries. The <strong>${snapshot.AccountCount || 43} HLS accounts</strong> represent the largest account population of any SQL600 industry, and Healthcare also leads SQL600 in <strong>committed pipeline</strong> (<strong>${fmtDollar(snapshot.PipeCommitted)}</strong>).${dominantVert ? ` <strong>${dominantVert.Vertical}</strong> dominates the vertical mix, contributing <strong>${dominantShare}% of HLS ACR with only ${dominantVert.AccountCount} accounts</strong>.` : ''}${topAcctName && topAcctShare ? ` <strong>${topAcctName} alone delivers ${topAcctShare}% of HLS ACR</strong> — single-account concentration is the dominant portfolio risk.` : ''}</p>`,
+      `<p><strong>Pipeline penetration is ${fmtPct(snapshot.PipelinePenetration)}</strong> (${snapshot.AcctsWithModPipe || 0} of ${snapshot.AccountCount || 43} accounts have modernization pipeline). Committed pipe of <strong>${fmtDollar(snapshot.PipeCommitted)}</strong> sits against <strong>${fmtDollar(snapshot.PipeUncommitted)}</strong> uncommitted — the conversion gap is the single largest near-term lever. ${snapshot.AcctsWithoutModPipe || 0} accounts have zero mod pipeline${gapCount ? `; <strong>${gapCount} accounts have zero committed pipeline</strong>` : ''} — direct GCP leakage exposure.</p>`,
+      `<p><strong>Modernization execution is the critical lever.</strong> <strong>${fmtNum(snapshot.ModernizationOpps)}</strong> modernization opportunities are open across ${snapshot.AcctsWithModPipe || 0} accounts, but <strong>factory attach is ${fmtPct(snapshot.FactoryAttach)}</strong>${parseDollar(snapshot.FactoryAttach) < 0.15 ? ' — below the 15% target and the gating constraint on uncommitted-to-committed conversion' : ''}. Closing the factory gap is the highest-leverage execution move: it drives both win rate and renewal defense.</p>`,
+    ].join('\n      ');
+  }
+
+  return `<div class="cover-page">
+  <div class="cover-content">
+    <div class="cover-logo">SQL600 · Database Compete</div>
+    <h1 class="cover-title">Healthcare Portfolio<br>Executive Readout</h1>
+    <div class="cover-date">${dateLine}</div>
+    <div class="cover-divider"></div>
+    <div class="cover-summary">
+      <h2>Executive Summary</h2>
+      ${paraHtml}
+    </div>
+    <div class="cover-meta">
+      <div class="cover-meta-item"><span>Portfolio</span><strong>${snapshot.AccountCount || 43} HLS Accounts</strong></div>
+      <div class="cover-meta-item"><span>SQL Cores</span><strong>${fmtNum(snapshot.SQLCores)}</strong></div>
+      <div class="cover-meta-item"><span>SQL TAM</span><strong>${fmtDollar(snapshot.SQLTotalTAM)}</strong></div>
+      <div class="cover-meta-item"><span>Industry Rank</span><strong>#${hlsRank} of ${industryCount}</strong></div>
+    </div>
+    <div class="cover-scroll-hint">↓ Scroll for full readout</div>
+  </div>
+</div>`;
+})()}
 
 <!-- Header -->
 <div class="header">
@@ -2837,6 +3094,28 @@ ${Array.isArray(narrative.takeaways) && narrative.takeaways.length ? `
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && PALETTES[saved]) applyPalette(saved);
   } catch (e) {}
+})();
+</script>
+
+<!-- Scroll-to-top button -->
+<button class="scroll-top-btn" id="scrollTopBtn" aria-label="Scroll to top" title="Back to top">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l-8 8h5v8h6v-8h5z"/></svg>
+</button>
+<script>
+(function() {
+  const btn = document.getElementById('scrollTopBtn');
+  if (!btn) return;
+  const SHOW_AFTER = 320;
+  function update() {
+    if (window.scrollY > SHOW_AFTER) btn.classList.add('visible');
+    else btn.classList.remove('visible');
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  btn.addEventListener('click', () => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+  });
+  update();
 })();
 </script>
 
