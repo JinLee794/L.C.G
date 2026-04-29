@@ -55,11 +55,11 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $s = irm "https://raw.githubus
 
 ## Demo Video
 
-<a href="image/README/LCG-part2_final.mp4">
+<a href="image/README/LCG-part2_final.mp4?raw=1">
   <img src="docs/assets/lcg-demo-preview.gif" alt="L.C.G install walkthrough preview" width="640" />
 </a>
 
-> ▶ **[Download the full walkthrough MP4](image/README/LCG-part2_final.mp4)** (≈15 MB) — or click the preview above.
+> ▶ **[Download the full walkthrough MP4](image/README/LCG-part2_final.mp4?raw=1)** (≈15 MB) — or click the preview above.
 
 **1. Open Windows PowerShell.** Click Start, type "PowerShell", and pick **Windows PowerShell** (the regular one — not the blue ISE).
 
